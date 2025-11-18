@@ -1,0 +1,652 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type AccountApplicationEntity {
+  applicationStatus: ApplicationStatus!
+  approvedAt: DateTime
+  createdAt: DateTime!
+  declinedAt: DateTime
+  documents: String
+  id: ID!
+  kycStatus: KycStatus!
+  leadId: ID!
+  reviewedAt: DateTime
+  riskProfile: String
+  submittedAt: DateTime
+  updatedAt: DateTime!
+}
+
+enum ApplicationStatus {
+  APPROVED
+  DECLINED
+  SUBMITTED
+  UNDER_REVIEW
+}
+
+type AssignBulkItemResult {
+  id: ID!
+  message: String!
+  ok: Boolean!
+}
+
+type AssignBulkResult {
+  assigned: Int!
+  errors: [String!]!
+  failed: Int!
+  items: [AssignBulkItemResult!]!
+}
+
+input AssignLeadInput {
+  leadId: ID!
+  mode: AssignMode!
+  rmId: ID
+}
+
+input AssignLeadsBulkInput {
+  leadIds: [ID!]!
+  mode: AssignMode!
+  rmId: ID
+}
+
+enum AssignMode {
+  AUTO
+  MANUAL
+}
+
+type AssignResult {
+  lead: IpkLeaddEntity!
+  message: String!
+}
+
+type BulkImportResult {
+  created: Int!
+  errors: [String!]!
+  failed: Int!
+  merged: Int!
+}
+
+input BulkLeadRowInput {
+  age: Float
+  approachAt: DateTime
+  bioText: String
+  clientQa: [ClientQaInput!]
+  clientTypes: String
+  email: String
+  firstName: String
+  gender: String
+  investmentRange: String
+  lastName: String
+  leadSource: String!
+  location: String
+  name: String
+  occupations: [OccupationInput!]
+  phone: String!
+  product: String
+  referralCode: String
+  referralName: String
+  remark: String
+  sipAmount: Float
+  stageFilter: LeadStageFilter
+}
+
+enum CallDirection {
+  INCOMING
+  OUTGOING
+}
+
+input ChangeStageInput {
+  channel: InteractionChannel
+  leadId: ID!
+  nextFollowUpAt: DateTime
+  note: String
+  productExplained: Boolean
+  stage: ClientStage!
+  stageFilter: LeadStageFilter
+}
+
+input ClientQaInput {
+  answer: String!
+  question: String!
+}
+
+type ClientQaItem {
+  answer: String!
+  question: String!
+}
+
+input ClientQaItemInput {
+  answer: String!
+  question: String!
+}
+
+enum ClientStage {
+  ACCOUNT_OPENED
+  CLIENT_INTERESTED
+  FIRST_TALK_DONE
+  FOLLOWING_UP
+  HIBERNATED
+  NEW_LEAD
+  NOT_INTERESTED_DORMANT
+  NO_RESPONSE_DORMANT
+  RISKY_CLIENT_DORMANT
+}
+
+input CreateAccountApplicationInput {
+  aadhaar: String
+  consentAuditJson: String
+  documentsJson: String
+  investmentPreferencesJson: String
+  leadId: ID!
+  pan: String
+  riskProfile: String
+}
+
+input CreateIpkLeaddInput {
+  age: Float
+  approachAt: DateTime
+  bioText: String
+  clientQa: [ClientQaInput!]
+  clientTypes: String
+  email: String
+  firstName: String
+  gender: String
+  investmentRange: String
+  lastName: String
+  leadSource: String!
+  location: String
+  name: String
+  occupations: [OccupationInput!]
+  phone: String!
+  product: String
+  referralCode: String
+  referralName: String
+  remark: String
+  sipAmount: Float
+  stageFilter: LeadStageFilter
+}
+
+input CreateUserInput {
+  archived: Boolean! = false
+  email: String!
+  gender: Gender
+  name: String!
+  password: String!
+  phone: String
+  role: UserRoles!
+  status: Status! = ACTIVE
+}
+
+type CreateUserPayload {
+  message: String
+  success: Boolean!
+  user: UserEntity
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+enum DormantReason {
+  NOT_INTERESTED
+  NO_RESPONSE
+  OTHER
+  RISKY_CLIENT
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+}
+
+enum InteractionChannel {
+  CALL
+  EMAIL
+  MEETING
+  OTHER
+  SMS
+  WHATSAPP
+}
+
+enum InteractionOutcome {
+  ANSWERED
+  FOLLOW_UP_NEEDED
+  INTERESTED
+  NOT_INTERESTED
+  NO_ANSWER
+  WRONG_NUMBER
+}
+
+input InviteRmInput {
+  email: String!
+  gender: Gender
+  name: String!
+  phone: String
+}
+
+type InviteRmPayload {
+  message: String
+  starterPassword: String
+  success: Boolean!
+  user: UserEntity
+}
+
+type IpkLeaddEntity {
+  age: Int
+  approachAt: DateTime
+  archived: Boolean!
+  assignedRM: String
+  assignedRmId: ID
+  bioText: String
+  clientQa: [ClientQaItem]
+  clientStage: ClientStage
+  clientTypes: String
+  contactAttempts: Int
+  createdAt: DateTime!
+  email: String
+  events: [LeadEventEntity]
+  firstName: String
+  firstSeenAt: DateTime
+  gender: String
+  history: JSON
+  id: ID!
+  investmentRange: String
+  lastContactedAt: DateTime
+  lastName: String
+  lastSeenAt: DateTime
+  leadCode: String
+  leadSource: String!
+  location: String
+  name: String
+  nextActionDueAt: DateTime
+  occupations: [OccupationEntity]
+  phone: String!
+  phoneNormalized: String
+  phones: [LeadPhoneEntity]
+  product: String
+  reenterCount: Int
+  referralCode: String
+  referralName: String
+  remark: [RemarkModel!]
+  remarks: [RemarkEntry]
+  sipAmount: Int
+  stageFilter: LeadStageFilter
+  status: LeadStatus!
+  updatedAt: DateTime!
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON @specifiedBy(url: "http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf")
+
+enum KycStatus {
+  FAILED
+  PENDING
+  VERIFIED
+}
+
+type LeadEventEntity {
+  authorId: ID
+  id: ID!
+  leadId: ID!
+  meta: JSON
+  next: JSON
+  occurredAt: DateTime!
+  prev: JSON
+  tags: [String!]!
+  text: String
+  type: LeadEventType!
+}
+
+enum LeadEventType {
+  ASSIGNMENT
+  BIO_UPDATED
+  HISTORY_SNAPSHOT
+  INTERACTION
+  NOTE
+  PHONE_ADDED
+  PHONE_MARKED_PRIMARY
+  PHONE_REMOVED
+  REMARK_UPDATED
+  REVISIT
+  STATUS_CHANGE
+}
+
+input LeadInteractionInput {
+  channel: InteractionChannel
+  dormantReason: DormantReason
+  leadId: ID!
+  nextFollowUpAt: DateTime
+  outcome: InteractionOutcome
+  tags: [String!]! = []
+  text: String!
+}
+
+input LeadListArgs {
+  archived: Boolean
+  assignedRmId: ID
+  clientStage: ClientStage
+  createdAfter: DateTime
+  createdBefore: DateTime
+  dormantDays: Int
+  dormantOnly: Boolean
+  followUpDueOnly: Boolean
+  lastSeenBeforeDays: Int
+  page: Int = 1
+  pageSize: Int = 10
+  search: String
+  stageFilter: LeadStageFilter
+  stageIn: [ClientStage!]
+  status: LeadStatus
+}
+
+input LeadNoteInput {
+  leadId: ID!
+  tags: [String!]! = []
+  text: String!
+}
+
+type LeadPage {
+  items: [IpkLeaddEntity!]!
+  page: Int!
+  pageSize: Int!
+  total: Int!
+}
+
+type LeadPhoneEntity {
+  createdAt: DateTime!
+  id: ID!
+  isPrimary: Boolean!
+  isWhatsapp: Boolean!
+  label: PhoneLabel!
+  leadId: ID!
+  normalized: String!
+  number: String!
+  updatedAt: DateTime!
+  verifiedAt: DateTime
+}
+
+input LeadPhoneInput {
+  isPrimary: Boolean! = false
+  isWhatsapp: Boolean! = false
+  label: PhoneLabel! = MOBILE
+  number: String!
+}
+
+enum LeadStageFilter {
+  FUTURE_INTERESTED
+  HIGH_PRIORITY
+  LOW_PRIORITY
+  NEED_CLARIFICATION
+  NOT_ELIGIBLE
+  NOT_INTERESTED
+  ON_PROCESS
+}
+
+enum LeadStatus {
+  ASSIGNED
+  CLOSED
+  IN_PROGRESS
+  ON_HOLD
+  OPEN
+  PENDING
+}
+
+input LogLeadCallInput {
+  direction: CallDirection!
+  durationSec: Int!
+  leadId: ID!
+  occurredAt: DateTime
+  outcome: InteractionOutcome
+  phoneNumber: String!
+  text: String
+}
+
+type Mutation {
+  addLeadInteraction(input: LeadInteractionInput!): LeadEventEntity!
+  addLeadNote(input: LeadNoteInput!): LeadEventEntity!
+  addLeadPhone(input: LeadPhoneInput!, leadId: ID!): [LeadPhoneEntity!]!
+  assignLead(id: ID!): IpkLeaddEntity!
+  assignLeadWithMode(input: AssignLeadInput!): AssignResult!
+  assignLeads(ids: [ID!]!): [IpkLeaddEntity!]!
+  assignLeadsWithMode(input: AssignLeadsBulkInput!): AssignBulkResult!
+  changeStage(input: ChangeStageInput!): IpkLeaddEntity!
+  createAccountApplication(input: CreateAccountApplicationInput!): AccountApplicationEntity!
+  createIpkLeadd(input: CreateIpkLeaddInput!): IpkLeaddEntity!
+  createLeadsBulk(rows: [BulkLeadRowInput!]!): BulkImportResult!
+  createUser(input: CreateUserInput!): CreateUserPayload!
+  generatePasswordResetLink(email: String!): String!
+  inviteRm(input: InviteRmInput!): InviteRmPayload!
+  logLeadCall(input: LogLeadCallInput!): LeadEventEntity!
+  makeAdmin(id: ID!): UserEntity!
+  markPrimaryLeadPhone(phoneId: ID!): [LeadPhoneEntity!]!
+  reassignLead(input: ReassignLeadInput!): IpkLeaddEntity!
+  removeLeadPhone(phoneId: ID!): [LeadPhoneEntity!]!
+  removeUser(id: ID!): UserEntity!
+  rmFirstContact(input: RmFirstContactInput!): IpkLeaddEntity!
+  setLeadPhoneWhatsapp(isWhatsapp: Boolean!, phoneId: ID!): LeadPhoneEntity!
+  syncUsersWithFirebase: SyncReport!
+  updateAccountApplicationStatus(input: UpdateApplicationStatusInput!): AccountApplicationEntity!
+  updateAccountKycStatus(input: UpdateKycStatusInput!): AccountApplicationEntity!
+  updateIpkLeadd(input: UpdateIpkLeaddInput!): IpkLeaddEntity!
+  updateLeadBio(input: UpdateLeadBioInput!): IpkLeaddEntity!
+  updateLeadClientQa(input: UpdateLeadClientQaInput!): IpkLeaddEntity!
+  updateLeadDetails(input: UpdateLeadDetailsInput!): IpkLeaddEntity!
+  updateLeadRemark(input: UpdateLeadRemarkInput!): IpkLeaddEntity!
+  updateLeadStatus(leadId: ID!, status: LeadStatus!): IpkLeaddEntity!
+  updateUser(id: ID!, input: UpdateUserDto!): UserEntity!
+}
+
+type OccupationEntity {
+  companyName: String
+  designation: String
+  endedAt: DateTime
+  profession: String!
+  startedAt: DateTime
+}
+
+input OccupationInput {
+  companyName: String
+  designation: String
+  endedAt: DateTime
+  profession: String!
+  startedAt: DateTime
+}
+
+enum PhoneLabel {
+  HOME
+  MOBILE
+  OTHER
+  PRIMARY
+  WHATSAPP
+  WORK
+}
+
+type Query {
+  accountApplicationsByLead(leadId: ID!): [AccountApplicationEntity!]!
+  activeRms: [UserLiteModel!]!
+  getActiveUsers: [UserEntity!]!
+  getUser(id: ID!, withLeads: Boolean! = false): UserEntity
+  getUsers(withLeads: Boolean! = false): [UserEntity!]!
+  ipkLeadds: [IpkLeaddEntity!]!
+  lead(id: ID!): IpkLeaddEntity!
+  leadDetailWithTimeline(eventsLimit: Int, leadId: ID!): IpkLeaddEntity!
+  leadStageSummary: StageSummary!
+  leads(args: LeadListArgs!): LeadPage!
+  leadsByStage(args: LeadListArgs, stage: ClientStage): LeadPage!
+  leadsOpen: [IpkLeaddEntity!]!
+  me: UserEntity!
+  myAssignedLeads(args: LeadListArgs! = {page: 1, pageSize: 10}): LeadPage!
+}
+
+input ReassignLeadInput {
+  leadId: ID!
+  newRmId: ID!
+}
+
+type RemarkEntry {
+  author: String
+  createdAt: DateTime!
+  text: String!
+}
+
+type RemarkModel {
+  at: String!
+  by: String
+  byName: String
+  text: String!
+}
+
+input RmFirstContactInput {
+  channel: InteractionChannel!
+  leadId: ID!
+  nextFollowUpAt: DateTime
+  notExplainedReason: String
+  note: String
+  productExplained: Boolean!
+}
+
+type StageSummary {
+  items: [StageSummaryItem!]!
+  total: Int!
+}
+
+type StageSummaryItem {
+  count: Int!
+  stage: ClientStage
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+
+type SyncReport {
+  checked: Float!
+  createdInFirebase: Float!
+  linkedByEmail: Float!
+  missingFirebase: [String!]!
+  updatedDisplayName: Float!
+  updatedEmail: Float!
+}
+
+input UpdateApplicationStatusInput {
+  applicationId: ID!
+  remark: String
+  status: ApplicationStatus!
+}
+
+input UpdateIpkLeaddInput {
+  age: Float
+  approachAt: DateTime
+  bioText: String
+  clientQa: [ClientQaInput!]
+  clientTypes: String
+  email: String
+  firstName: String
+  gender: String
+  id: ID!
+  investmentRange: String
+  lastName: String
+  leadSource: String
+  location: String
+  name: String
+  occupations: [OccupationInput!]
+  phone: String
+  product: String
+  referralCode: String
+  referralName: String
+  remark: String
+  sipAmount: Float
+  stageFilter: LeadStageFilter
+}
+
+input UpdateKycStatusInput {
+  applicationId: ID!
+  kyc: KycStatus!
+  remark: String
+}
+
+input UpdateLeadBioInput {
+  bioText: String!
+  leadId: ID!
+}
+
+input UpdateLeadClientQaInput {
+  items: [ClientQaItemInput!]!
+  leadId: ID!
+}
+
+input UpdateLeadDetailsInput {
+  age: Float
+  approachAt: DateTime
+  bioText: String
+  email: String
+  firstName: String
+  gender: String
+  investmentRange: String
+  lastName: String
+  leadId: ID!
+  location: String
+  name: String
+  occupations: [OccupationInput!]
+  phone: String
+  product: String
+  referralCode: String
+  referralName: String
+  remark: String
+  sipAmount: Float
+  stageFilter: LeadStageFilter
+}
+
+input UpdateLeadRemarkInput {
+  leadId: ID!
+  remark: String!
+}
+
+input UpdateUserDto {
+  active: Boolean
+  archived: Boolean
+  email: String
+  firebaseUid: String
+  gender: Gender
+  name: String
+  newPassword: String
+  password: String
+  phone: String
+  role: UserRoles
+  status: Status
+}
+
+type UserEntity {
+  archived: Boolean!
+  assignedLeads: [IpkLeaddEntity]
+  createdAt: DateTime!
+  email: String!
+  firebaseUid: String!
+  gender: Gender
+  id: ID!
+  lastAssignedAt: DateTime
+  name: String!
+  phone: String
+  role: UserRoles!
+  status: Status!
+  updatedAt: DateTime!
+}
+
+type UserLiteModel {
+  email: String
+  id: ID!
+  name: String!
+  phone: String
+}
+
+enum UserRoles {
+  ADMIN
+  MARKETING
+  RM
+  STAFF
+}

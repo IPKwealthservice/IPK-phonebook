@@ -1,0 +1,6 @@
+{
+  "READ_CONTACTS": "Allows IPK PhoneBook to surface device contacts inside the CRM.",
+  "WRITE_CONTACTS": "Reserved for syncing CRM contacts back to the device in a future update.",
+  "INTERNET": "Required for API communication and real-time updates.",
+  "VIBRATE": "Enables subtle feedback on important CRM interactions."
+}
