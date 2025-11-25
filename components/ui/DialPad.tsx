@@ -1,6 +1,7 @@
 import { useTheme } from "@/core/theme/ThemeProvider";
+import { useQuery } from "@apollo/client/react";
 import { useContacts } from "@/features/contacts/hooks/useContacts";
-import { IpkLead, ipkLeadPipeline } from "@/features/leads/data/ipkLeadModel";
+import { IpkLead } from "@/features/leads/data/ipkLeadModel";
 import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -9,6 +10,8 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  PermissionsAndroid,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -17,6 +20,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import CallLogs from "react-native-call-log";
+import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
 import {
   dpStyles,
   getActionIconSizeStyles,
@@ -52,6 +57,25 @@ const sanitizeNumber = (input: string = "") =>
 
 const ensureCountryCode = (raw: string) => raw ?? "";
 
+type RecentCall = {
+  id: string;
+  number: string;
+  timestamp: number;
+};
+
+const formatRecentTime = (timestamp: number) => {
+  const now = Date.now();
+  const diffMinutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+};
+
 type DialPadProps = {
   visible: boolean;
   onClose: () => void;
@@ -69,7 +93,24 @@ export const DialPad: React.FC<DialPadProps> = ({
 }) => {
   const theme = useTheme();
   const { contacts } = useContacts();
-  const ipkLeads = ipkLeadPipeline;
+  const { data: leadData } = useQuery(MY_ASSIGNED_LEADS, {
+    variables: { page: 1, pageSize: 500 },
+    fetchPolicy: "cache-and-network",
+  });
+  const ipkLeads = useMemo(() => {
+    const items = (leadData as any)?.myAssignedLeads?.items ?? [];
+    return items.map((lead: any) => ({
+      ...lead,
+      id: String(lead.id),
+      name: lead.name ?? lead.leadCode ?? "Unknown lead",
+      phone: lead.phone ?? "",
+      phoneNormalized: sanitizeNumber(lead.phone ?? ""),
+      leadSource: lead.leadSource ?? "Unknown",
+      phones: lead.phone
+        ? [{ label: "Primary", number: lead.phone, primary: true }]
+        : [],
+    })) as IpkLead[];
+  }, [leadData]);
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const isDark = theme.scheme === "dark";
@@ -82,6 +123,8 @@ export const DialPad: React.FC<DialPadProps> = ({
   const [activeLead, setActiveLead] = useState<IpkLead | null>(
     ipkLeads[0] ?? null
   );
+  const [recentCalls, setRecentCalls] = useState<RecentCall[]>([]);
+  const [loadingRecents, setLoadingRecents] = useState(false);
   const anim = useMemo(() => new Animated.Value(0), []);
 
   useEffect(() => {
@@ -104,6 +147,64 @@ export const DialPad: React.FC<DialPadProps> = ({
       setActiveLead(ipkLeads[0]);
     }
   }, [activeLead, ipkLeads]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRecentCalls = async () => {
+      if (!visible || Platform.OS !== "android") {
+        setRecentCalls([]);
+        return;
+      }
+      setLoadingRecents(true);
+      try {
+        const hasPermission = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.READ_CALL_LOG
+        );
+        if (!hasPermission) {
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.READ_CALL_LOG
+          );
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            setRecentCalls([]);
+            return;
+          }
+        }
+
+        const entries: any[] = await CallLogs.load(30);
+        const mapped = entries
+          .map((entry, index) => {
+            const digits = sanitizeNumber(
+              entry?.phoneNumber || entry?.phone || entry?.number || ""
+            ).replace(/[^\d+]/g, "");
+            const tsRaw = Number(entry?.timestamp ?? entry?.dateTime ?? 0);
+            const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : Date.now();
+            if (!digits) return null;
+            return {
+              id: String(entry?.timestamp ?? `${ts}-${index}`),
+              number: digits,
+              timestamp: ts,
+            } as RecentCall;
+          })
+          .filter(Boolean) as RecentCall[];
+        if (!cancelled) {
+          setRecentCalls(mapped);
+        }
+      } catch (error) {
+        console.warn("Failed to load recent calls", error);
+        if (!cancelled) {
+          setRecentCalls([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRecents(false);
+        }
+      }
+    };
+    loadRecentCalls();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
 
   const pointerEvents = visible ? "auto" : "none";
   const numberDisplay = useMemo(() => {
@@ -197,6 +298,8 @@ export const DialPad: React.FC<DialPadProps> = ({
       updateValue(lead.phone);
     }
     setSearch("");
+    setActiveLead(lead);
+    setLeadSheetOpen(true);
   };
 
   const handleLeadPick = (lead: IpkLead) => {
@@ -388,7 +491,61 @@ export const DialPad: React.FC<DialPadProps> = ({
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
-              ) : null}
+              ) : (
+                <View style={styles.recentsContainer}>
+                  <View style={styles.recentsHeader}>
+                    <Text
+                      style={[
+                        styles.recentsTitle,
+                        { color: isDark ? "#CBD5F5" : "#0F172A" },
+                      ]}
+                    >
+                      Recent calls
+                    </Text>
+                    {loadingRecents ? (
+                      <Text style={styles.recentsSubtitle}>Loading...</Text>
+                    ) : null}
+                  </View>
+                  <ScrollView
+                    style={styles.recentsList}
+                    contentContainerStyle={styles.recentsContent}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {recentCalls.length === 0 && !loadingRecents ? (
+                      <Text style={styles.recentsSubtitle}>
+                        No recent calls found
+                      </Text>
+                    ) : null}
+                    {recentCalls.map((call) => (
+                      <TouchableOpacity
+                        key={call.id}
+                        style={[
+                          styles.recentRow,
+                          {
+                            backgroundColor: isDark ? "#0B1226" : "#F8FAFC",
+                            borderColor: isDark ? "#1F2937" : "#E5E7EB",
+                          },
+                        ]}
+                        activeOpacity={0.85}
+                        onPress={() => updateValue(call.number)}
+                      >
+                        <Text
+                          style={[
+                            styles.recentNumber,
+                            { color: isDark ? "#F8FAFC" : "#111827" },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {call.number}
+                        </Text>
+                        <Text style={styles.recentTime}>
+                          {formatRecentTime(call.timestamp)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
 
             <View style={styles.padSection}>
@@ -536,7 +693,7 @@ const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
   const phones =
     activeLead?.phones
       ?.map((phone) => `${phone.label}: ${phone.number}`)
-      .join(" • ") ?? activeLead?.phone;
+      .join(" / ") ?? activeLead?.phone;
 
   const infoPairs = [
     { label: "Lead Code", value: activeLead?.leadCode },
@@ -550,7 +707,7 @@ const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
     { label: "Investment Range", value: activeLead?.investmentRange },
     {
       label: "SIP Amount",
-      value: activeLead?.sipAmount ? `₹${activeLead.sipAmount}` : undefined,
+      value: activeLead?.sipAmount ? `Rs ${activeLead.sipAmount}` : undefined,
     },
     { label: "Last Contacted", value: activeLead?.lastContactedAt },
     { label: "Next Action", value: activeLead?.nextActionDueAt },
@@ -626,7 +783,7 @@ type InfoRowProps = {
 const InfoRow: React.FC<InfoRowProps> = ({ label, value }) => (
   <View style={styles.infoRow}>
     <Text style={styles.infoLabel}>{label}</Text>
-    <Text style={styles.infoValue}>{value ?? "—"}</Text>
+    <Text style={styles.infoValue}>{value ?? "N/A"}</Text>
   </View>
 );
 
@@ -655,6 +812,47 @@ const styles = StyleSheet.create({
   },
   numberWrapper: {
     alignItems: "center",
+  },
+  recentsContainer: {
+    width: "100%",
+    gap: 8,
+  },
+  recentsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+  },
+  recentsTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  recentsSubtitle: {
+    fontSize: 12,
+    color: "#94A3B8",
+  },
+  recentsList: {
+    maxHeight: 240,
+    width: "100%",
+  },
+  recentsContent: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  recentRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  recentNumber: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  recentTime: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#94A3B8",
   },
   suggestionsList: {
     maxHeight: 240,
