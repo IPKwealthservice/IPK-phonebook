@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -28,12 +27,14 @@ const quickActions: {
   label: string;
   description: string;
   icon: ComponentProps<typeof MaterialIcons>["name"];
+  onPress?: () => void;
 }[] = [
   {
     id: "all-leads",
     label: "All Leads",
     description: "View every active relationship",
     icon: "group",
+    onPress: undefined, // injected with router in component
   },
   {
     id: "today-followups",
@@ -64,7 +65,6 @@ type LeadLite = {
 export const HomeDashboardScreen = () => {
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const { width } = useWindowDimensions();
   const user = useAuthStore((s) => s.user);
   const {
     startCall,
@@ -77,7 +77,17 @@ export const HomeDashboardScreen = () => {
 
   const displayName = user?.name ?? "IPK Wealth";
   const initials = useMemo(() => getInitials(displayName), [displayName]);
-  const pageWidth = Math.max(width - theme.spacing.lg * 2, 280);
+  const actionList = useMemo(
+    () =>
+      quickActions.map((action) =>
+        action.id === "all-leads"
+          ? { ...action, onPress: () => router.push("/(tabs)/leads") }
+          : action.id === "today-followups"
+          ? { ...action, onPress: () => router.push("/(tabs)/followups") }
+          : action
+      ),
+    [router]
+  );
 
   // GraphQL query
   const { data, loading, error } = useQuery(MY_ASSIGNED_LEADS, {
@@ -143,27 +153,45 @@ export const HomeDashboardScreen = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.headerRow}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/profile')}
-            style={styles.avatar}
-          >
-            <Text weight="semibold" tone="default">{initials}</Text>
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text size="sm" tone="muted">Welcome back</Text>
-            <Text size="lg" weight="semibold">{displayName}</Text>
-          </View>
-          <View style={styles.headerIcons}>
+        {/* Welcome / profile card */}
+        <View style={styles.heroCard}>
+          <View style={styles.heroTopRow}>
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/profile')}
-              style={styles.smallAvatar}
+              onPress={() => router.push("/profile")}
+              style={styles.heroAvatar}
             >
-              <MaterialIcons name="verified-user" size={18} color={theme.colors.primary} />
+              <Text weight="bold" style={{ color: theme.colors.text }}>
+                {initials}
+              </Text>
             </Pressable>
+            <View style={styles.heroCopy}>
+              <Text size="xs" tone="muted">
+                Welcome back
+              </Text>
+              <Text size="xl" weight="bold" style={styles.heroName}>
+                {displayName}
+              </Text>
+              <Text size="sm" tone="muted">
+                Keep conversations moving and never lose a lead.
+              </Text>
+            </View>
+            <View style={styles.heroActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/profile")}
+                style={styles.heroActionBtn}
+              >
+                <MaterialIcons name="person" size={18} color={theme.colors.text} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/settings")}
+                style={styles.heroActionBtn}
+              >
+                <MaterialIcons name="settings" size={18} color={theme.colors.text} />
+              </Pressable>
+            </View>
           </View>
         </View>
 
@@ -173,8 +201,15 @@ export const HomeDashboardScreen = () => {
             Workspace shortcuts
           </Text>
           <View style={styles.quickActions}>
-            {quickActions.map((action) => (
-              <View key={action.id} style={styles.quickAction}>
+            {actionList.map((action) => (
+              <Pressable
+                key={action.id}
+                onPress={action.onPress}
+                style={[
+                  styles.quickAction,
+                  action.onPress && { backgroundColor: theme.colors.card },
+                ]}
+              >
                 <View style={styles.quickIcon}>
                   <MaterialIcons
                     name={action.icon}
@@ -193,7 +228,7 @@ export const HomeDashboardScreen = () => {
                   size={20}
                   color={theme.colors.muted}
                 />
-              </View>
+              </Pressable>
             ))}
           </View>
         </Card>
@@ -239,7 +274,7 @@ export const HomeDashboardScreen = () => {
         {/* Stage wise lead list */}
         <View style={{ paddingHorizontal: theme.spacing.lg, marginTop: theme.spacing.md }}>
           {loading && (!groupedByStage.get(selectedStage) || groupedByStage.get(selectedStage)?.length === 0) && (
-            <LoadingState message="Retrieving your data…" />
+            <LoadingState message="Retrieving your data..." />
           )}
 
           {error && (
@@ -336,32 +371,48 @@ export const HomeDashboardScreen = () => {
 const makeStyles = (theme: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: theme.colors.background },
-    scrollContent: { paddingVertical: theme.spacing.lg, gap: theme.spacing.md },
-    headerRow: {
+    scrollContent: { paddingVertical: theme.spacing.lg, gap: theme.spacing.lg },
+    heroCard: {
+      marginHorizontal: theme.spacing.lg,
+      padding: theme.spacing.lg,
+      borderRadius: theme.radii.lg,
+      backgroundColor: theme.scheme === "dark" ? "#0F172A" : "#EEF2FF",
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
+    },
+    heroTopRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: theme.spacing.lg,
     },
-    headerCopy: { flex: 1, marginLeft: theme.spacing.md },
-    headerIcons: { flexDirection: "row", gap: theme.spacing.sm },
-    smallAvatar: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+    heroAvatar: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: theme.colors.card,
       borderWidth: 1,
       borderColor: theme.colors.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 6 },
     },
-    avatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+    heroCopy: { flex: 1, marginLeft: theme.spacing.md, gap: 4 },
+    heroName: { letterSpacing: 0.2 },
+    heroActions: { flexDirection: "row", gap: theme.spacing.xs },
+    heroActionBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.colors.card,
+      backgroundColor: theme.scheme === "dark" ? "#111827" : "#fff",
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
@@ -370,8 +421,14 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       padding: theme.spacing.md,
     },
     quickTitle: { marginBottom: theme.spacing.sm },
-    quickActions: { flexDirection: "column", gap: 8 },
-    quickAction: { flexDirection: "row", alignItems: "center", gap: 12 },
+    quickActions: { flexDirection: "column", gap: 10 },
+    quickAction: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      padding: theme.spacing.sm,
+      borderRadius: theme.radii.md,
+    },
     quickIcon: {
       width: 36,
       height: 36,

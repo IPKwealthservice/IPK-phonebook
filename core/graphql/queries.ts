@@ -67,6 +67,7 @@ export const LEADS_QUERY = gql`
         status
         assignedRM
         assignedRmId
+        nextActionDueAt
       }
       page
       pageSize
@@ -154,6 +155,7 @@ export const MY_ASSIGNED_LEADS = gql`
         clientStage
         assignedRM
         assignedRmId
+        nextActionDueAt
         createdAt
         updatedAt
       }

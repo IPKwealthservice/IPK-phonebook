@@ -86,18 +86,30 @@ public class CallDetectionManagerModule
             }
             : null;
 
-    @ReactMethod
-    public void stopListener() {
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            telephonyManager.unregisterTelephonyCallback(callStateListener);
-        } else {
-            telephonyManager.listen(callDetectionPhoneStateListener,
-                    PhoneStateListener.LISTEN_NONE);
-            callDetectionPhoneStateListener = null;
+  @ReactMethod
+  public void stopListener() {
+        if (telephonyManager == null) {
+            return;
         }
-        telephonyManager = null;
-    }
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                if (callStateListener != null) {
+                    telephonyManager.unregisterTelephonyCallback(callStateListener);
+                }
+            } else {
+                telephonyManager.listen(
+                        callDetectionPhoneStateListener,
+                        PhoneStateListener.LISTEN_NONE
+                );
+                callDetectionPhoneStateListener = null;
+            }
+        } catch (Exception ignored) {
+            // Guard against null reference crashes on cleanup
+        } finally {
+            telephonyManager = null;
+        }
+  }
 
     /**
      * @return a map of constants this module exports to JS. Supports JSON types.

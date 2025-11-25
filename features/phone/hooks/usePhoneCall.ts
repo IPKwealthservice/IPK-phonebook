@@ -8,7 +8,11 @@ import {
   Platform,
 } from "react-native";
 
+import { apolloClient } from "@/core/graphql/apolloClient";
+import { auth } from "@/core/firebase/firebaseConfig";
+import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
 import CallDetectorManager from "@huddle01/react-native-call-detection";
+import CallLogs from "react-native-call-log";
 
 export type ActiveLead = { id: string; name?: string; phone?: string } | null;
 
@@ -39,6 +43,111 @@ const normalizePhone = (raw: string): string => {
   return cleaned.replace(/\+/g, "");
 };
 
+const normalizeDigits = (value?: string | null): string =>
+  (value ?? "").replace(/\D/g, "");
+
+const phoneNumbersMatch = (left?: string | null, right?: string | null) => {
+  const a = normalizeDigits(left);
+  const b = normalizeDigits(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const minLength = Math.min(a.length, b.length);
+  if (minLength < 5) return false;
+  return (
+    a.endsWith(b) ||
+    b.endsWith(a) ||
+    a.slice(-10) === b.slice(-10)
+  );
+};
+
+type LeadDirectoryEntry = {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  normalizedDigits: string;
+};
+
+const findLeadMatch = (
+  phone: string | null,
+  directory: LeadDirectoryEntry[]
+): ActiveLead => {
+  if (!phone) return null;
+  const match = directory.find((entry) =>
+    phoneNumbersMatch(phone, entry.phone)
+  );
+  if (!match) return null;
+  return {
+    id: match.id,
+    name: match.name ?? undefined,
+    phone: match.phone ?? undefined,
+  };
+};
+
+const fetchLeadDirectory = async (): Promise<LeadDirectoryEntry[]> => {
+  try {
+    const token = await auth.currentUser?.getIdToken?.();
+    if (!token) {
+      console.log("Skipping lead directory fetch: no auth token");
+      return [];
+    }
+
+    const { data } = await apolloClient.query({
+      query: MY_ASSIGNED_LEADS,
+      variables: { page: 1, pageSize: 200 },
+      fetchPolicy: "cache-first",
+    });
+    const items = (data as any)?.myAssignedLeads?.items ?? [];
+    return items
+      .filter((item: any) => item?.id && item?.phone)
+      .map((item: any) => ({
+        id: String(item.id),
+        name: item?.name,
+        phone: item?.phone,
+        normalizedDigits: normalizeDigits(item?.phone),
+      }));
+  } catch (error) {
+    console.warn("Failed to fetch lead directory for call matching", error);
+    return [];
+  }
+};
+
+const getMatchingCallLog = async (
+  phone: string | null,
+  startedAt?: number | null
+): Promise<{ durationSeconds: number; connected: boolean } | null> => {
+  if (Platform.OS !== "android" || !phone) {
+    return null;
+  }
+
+  try {
+    const normalizedTarget = normalizeDigits(phone);
+    if (!normalizedTarget) return null;
+
+    const entries: any[] = await CallLogs.load(30);
+    const windowStart = startedAt ? startedAt - 20000 : null; // allow a small buffer
+
+    const match = entries.find((entry) => {
+      const digits = normalizeDigits(entry?.phoneNumber);
+      const timestamp = Number(entry?.timestamp ?? 0);
+      if (windowStart && timestamp && timestamp < windowStart) {
+        return false;
+      }
+      return phoneNumbersMatch(normalizedTarget, digits);
+    });
+
+    if (!match) return null;
+
+    const durationSeconds = Math.max(0, Number(match.duration ?? 0));
+    const type = String(match.type ?? "").toUpperCase();
+    const connected = durationSeconds > 0 && type !== "MISSED";
+
+    return { durationSeconds, connected };
+  } catch (error) {
+    console.warn("Call log lookup failed", error);
+    return null;
+  }
+};
+
 const requestCallPermissions = async (): Promise<boolean> => {
   if (Platform.OS !== "android") {
     return true;
@@ -63,6 +172,7 @@ const requestCallPermissions = async (): Promise<boolean> => {
     const granted = await PermissionsAndroid.requestMultiple([
       PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
       PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
+      PermissionsAndroid.PERMISSIONS.CALL_PHONE,
     ]);
 
     const hasPhoneState =
@@ -71,8 +181,11 @@ const requestCallPermissions = async (): Promise<boolean> => {
     const hasCallLog =
       granted[PermissionsAndroid.PERMISSIONS.READ_CALL_LOG] ===
       PermissionsAndroid.RESULTS.GRANTED;
+    const hasCallPhone =
+      granted[PermissionsAndroid.PERMISSIONS.CALL_PHONE] ===
+      PermissionsAndroid.RESULTS.GRANTED;
 
-    if (hasPhoneState && hasCallLog) {
+    if (hasPhoneState && hasCallLog && hasCallPhone) {
       console.log("Call permissions granted");
       return true;
     }
@@ -84,8 +197,11 @@ const requestCallPermissions = async (): Promise<boolean> => {
     const callLogDenied =
       granted[PermissionsAndroid.PERMISSIONS.READ_CALL_LOG] ===
       PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
+    const callPhoneDenied =
+      granted[PermissionsAndroid.PERMISSIONS.CALL_PHONE] ===
+      PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
 
-    if (phoneStateDenied || callLogDenied) {
+    if (phoneStateDenied || callLogDenied || callPhoneDenied) {
       Alert.alert(
         "Permissions Required",
         "Call tracking permissions are required. Please enable them in Settings > Apps > IPK PhoneBook > Permissions.",
@@ -123,6 +239,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const [isCalling, setIsCalling] = useState<boolean>(false);
   const [isFollowUpOpen, setIsFollowUpOpen] = useState<boolean>(false);
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [callConnectedAt, setCallConnectedAt] = useState<number | null>(null);
   const [callDurationSeconds, setCallDurationSeconds] = useState<number | null>(null);
   const [activeLead, setActiveLead] = useState<ActiveLead>(null);
   const [incomingCallNumber, setIncomingCallNumber] = useState<string | null>(
@@ -131,14 +248,22 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const [callDetectionReady, setCallDetectionReady] = useState<boolean>(
     Platform.OS !== "android"
   );
+  const [leadDirectory, setLeadDirectory] = useState<LeadDirectoryEntry[]>([]);
 
   const isCallingRef = useRef<boolean>(isCalling);
   const callStartedAtRef = useRef<number | null>(callStartedAt);
+  const callConnectedAtRef = useRef<number | null>(null);
   const callDetectorRef = useRef<CallDetectorManager | null>(null);
   const incomingCallNumberRef = useRef<string | null>(null);
+  const incomingMatchedLeadRef = useRef<ActiveLead>(null);
+  const leadDirectoryRef = useRef<LeadDirectoryEntry[]>([]);
   const endCallCallback = useCallStore((state) => state.endCall);
   const startCallRecord = useCallStore((state) => state.startCall);
   const endCallRef = useRef(endCallCallback);
+  const callOriginRef = useRef<"outgoing" | "incoming" | null>(null);
+  const dialedNumberRef = useRef<string | null>(null);
+  const activeLeadRef = useRef<ActiveLead>(null);
+  const finalizingRef = useRef<boolean>(false);
 
   useEffect(() => {
     isCallingRef.current = isCalling;
@@ -149,12 +274,46 @@ export function usePhoneCall(): UsePhoneCallReturn {
   }, [callStartedAt]);
 
   useEffect(() => {
+    callConnectedAtRef.current = callConnectedAt;
+  }, [callConnectedAt]);
+
+  useEffect(() => {
     incomingCallNumberRef.current = incomingCallNumber;
   }, [incomingCallNumber]);
 
   useEffect(() => {
     endCallRef.current = endCallCallback;
   }, [endCallCallback]);
+
+  useEffect(() => {
+    activeLeadRef.current = activeLead;
+  }, [activeLead]);
+
+  useEffect(() => {
+    if (!incomingCallNumber) {
+      incomingMatchedLeadRef.current = null;
+      return;
+    }
+    const matched = findLeadMatch(incomingCallNumber, leadDirectoryRef.current);
+    if (matched) {
+      incomingMatchedLeadRef.current = matched;
+      setActiveLead(matched);
+    }
+  }, [incomingCallNumber, leadDirectory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadDirectory = async () => {
+      const entries = await fetchLeadDirectory();
+      if (cancelled) return;
+      leadDirectoryRef.current = entries;
+      setLeadDirectory(entries);
+    };
+    loadDirectory();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== "android") {
@@ -193,27 +352,84 @@ export function usePhoneCall(): UsePhoneCallReturn {
       return;
     }
 
-    const finalizeCall = () => {
-      const startedAt = callStartedAtRef.current;
-      if (startedAt == null) {
-        setIsCalling(false);
-        setIncomingCallNumber(null);
-        return;
-      }
+    const finalizeCall = async () => {
+      if (finalizingRef.current) return;
+      finalizingRef.current = true;
 
-      const seconds = Math.max(
-        1,
-        Math.round((Date.now() - startedAt) / 1000)
-      );
-      console.log("Call ended detected, duration:", seconds);
-      setCallDurationSeconds(seconds);
-      setIsCalling(false);
-      setCallStartedAt(null);
-      setIncomingCallNumber(null);
-      setIsFollowUpOpen(true);
-      endCallRef.current?.();
-      if (incomingCallNumberRef.current) {
-        setActiveLead(null);
+      try {
+        const connectedAt = callConnectedAtRef.current;
+        const startedAt = callStartedAtRef.current;
+        const isIncoming =
+          callOriginRef.current === "incoming" || !!incomingCallNumberRef.current;
+        const matchedLead = isIncoming
+          ? incomingMatchedLeadRef.current
+          : activeLeadRef.current;
+        const targetNumber = isIncoming
+          ? incomingCallNumberRef.current
+          : dialedNumberRef.current;
+        const hadDialedNumber = !!dialedNumberRef.current;
+        const resolvedLead =
+          matchedLead ?? findLeadMatch(targetNumber, leadDirectoryRef.current);
+
+        if (connectedAt == null && startedAt == null) {
+          setIsCalling(false);
+          setIncomingCallNumber(null);
+          setCallConnectedAt(null);
+          setIsFollowUpOpen(false);
+          dialedNumberRef.current = null;
+          callOriginRef.current = null;
+          incomingMatchedLeadRef.current = null;
+          return;
+        }
+
+        let wasConnected = false;
+        let durationSeconds: number | null = null;
+
+        const logOutcome = await getMatchingCallLog(targetNumber, startedAt);
+        if (logOutcome) {
+          durationSeconds = logOutcome.durationSeconds;
+          wasConnected = logOutcome.connected;
+        }
+
+        if (durationSeconds == null) {
+          const timeToUse = connectedAt || startedAt;
+          const seconds = Math.max(
+            0,
+            Math.round((Date.now() - (timeToUse ?? Date.now())) / 1000)
+          );
+          durationSeconds = seconds;
+          wasConnected = wasConnected || !!connectedAt;
+        }
+
+        console.log(wasConnected ? "Call connected" : "Call not connected");
+
+        setCallDurationSeconds(durationSeconds);
+        setIsCalling(false);
+        setCallStartedAt(null);
+        setCallConnectedAt(null);
+        setIncomingCallNumber(null);
+
+        const shouldShowFollowUp = isIncoming ? !!resolvedLead : hadDialedNumber;
+        if (shouldShowFollowUp) {
+          setIsFollowUpOpen(true);
+          if (resolvedLead) {
+            setActiveLead(resolvedLead);
+          }
+        } else {
+          setIsFollowUpOpen(false);
+          if (isIncoming) {
+            setActiveLead(null);
+          }
+        }
+
+        endCallRef.current?.();
+      } catch (error) {
+        console.error("Failed to finalize call", error);
+      } finally {
+        dialedNumberRef.current = null;
+        incomingMatchedLeadRef.current = null;
+        callOriginRef.current = null;
+        finalizingRef.current = false;
       }
     };
 
@@ -225,29 +441,65 @@ export function usePhoneCall(): UsePhoneCallReturn {
       const normalizedIncoming =
         phoneNumber && phoneNumber.length ? normalizePhone(phoneNumber) : null;
 
+      console.log(`Call state changed: ${state}${normalizedIncoming ? ` - ${normalizedIncoming}` : ''}`);
+
       switch (state) {
         case "Incoming":
+          callOriginRef.current = "incoming";
           setIncomingCallNumber(normalizedIncoming);
           if (!isCallingRef.current) {
             setIsCalling(true);
-            setCallStartedAt(Date.now());
+            const now = Date.now();
+            setCallStartedAt(now);
+            callStartedAtRef.current = now;
             setCallDurationSeconds(null);
+            console.log("Incoming call detected - waiting for connection");
           }
           break;
         case "Dialing":
-        case "Connected":
-        case "Offhook":
+          callOriginRef.current = callOriginRef.current ?? "outgoing";
           if (!isCallingRef.current) {
             setIsCalling(true);
-            setCallStartedAt(Date.now());
+            const now = Date.now();
+            setCallStartedAt(now);
+            callStartedAtRef.current = now;
             setCallDurationSeconds(null);
+            console.log("Dialing detected - waiting for connection");
+          }
+          break;
+        case "Offhook":
+          callOriginRef.current = callOriginRef.current ?? "outgoing";
+          if (!isCallingRef.current) {
+            setIsCalling(true);
+            const now = Date.now();
+            setCallStartedAt(now);
+            callStartedAtRef.current = now;
+            setCallDurationSeconds(null);
+            console.log("Dialing detected - waiting for connection");
+          }
+          if (incomingCallNumberRef.current && !callConnectedAtRef.current) {
+            const now = Date.now();
+            setCallConnectedAt(now);
+            callConnectedAtRef.current = now;
+            console.log("Call connected (incoming answered)");
+          }
+          break;
+        case "Connected":
+          // This is when the call is ACTUALLY connected - start tracking from here
+          if (!callConnectedAtRef.current) {
+            const now = Date.now();
+            setCallConnectedAt(now);
+            callConnectedAtRef.current = now;
+            console.log("Call CONNECTED - duration tracking started");
           }
           break;
         case "Disconnected":
         case "Missed":
         case "Idle":
         case "OFFHOOK_IDLE":
-          finalizeCall();
+          finalizeCall().catch((error) =>
+            console.error("Failed to finalize call", error)
+          );
           break;
         default:
           break;
@@ -288,6 +540,17 @@ export function usePhoneCall(): UsePhoneCallReturn {
         return;
       }
       setCallDetectionReady(true);
+      callOriginRef.current = "outgoing";
+      dialedNumberRef.current = normalized;
+      incomingMatchedLeadRef.current = null;
+      setIncomingCallNumber(null);
+      const startTs = Date.now();
+      setIsCalling(true);
+      setCallStartedAt(startTs);
+      callStartedAtRef.current = startTs;
+      setCallConnectedAt(null);
+      callConnectedAtRef.current = null;
+      setCallDurationSeconds(null);
 
       if (opts?.leadId) {
         setActiveLead({
@@ -299,34 +562,38 @@ export function usePhoneCall(): UsePhoneCallReturn {
         setActiveLead(null);
       }
 
-      // Use tel: scheme - opens dialer with number pre-filled
-      // Note: On Android, user still needs to press call button due to security restrictions
-      // Some devices support tel: with # to auto-dial, but it's not reliable
-      const url = `tel:${normalized}`;
+      // Record call start in store
+      startCallRecord(sourceNumber);
+
       try {
-        const canOpen = await Linking.canOpenURL(url);
-        if (!canOpen) {
-          Alert.alert("Dialer", "This device cannot place phone calls.");
+        // Import placeDirectCall dynamically to avoid issues
+        const { placeDirectCall } = await import("@/core/utils/directCall");
+        
+        console.log("Initiating direct call for:", normalized);
+        const success = await placeDirectCall(normalized);
+        
+        if (!success) {
+          dialedNumberRef.current = null;
+          callOriginRef.current = null;
+          setIsCalling(false);
+          setCallStartedAt(null);
+          callStartedAtRef.current = null;
+          Alert.alert("Call Failed", "Unable to initiate the call.");
           return;
         }
-
-        // Set calling state BEFORE opening dialer
-        setIsCalling(true);
-        const startTime = Date.now();
-        setCallStartedAt(startTime);
-        setCallDurationSeconds(null);
-        startCallRecord(sourceNumber);
-
-        console.log("Opening dialer for:", normalized);
-        await Linking.openURL(url);
         
-        // Note: App will go to background when dialer opens
-        // We'll detect return via AppState listener
+        // Note: Call detection will automatically track:
+        // - When call starts dialing
+        // - When call connects (this is when we start tracking duration)
+        // - When call ends (show follow-up modal with ACTUAL call duration)
       } catch (err) {
-        console.error("Failed to open dialer", err);
+        console.error("Failed to initiate call", err);
+        dialedNumberRef.current = null;
+        callOriginRef.current = null;
         setIsCalling(false);
         setCallStartedAt(null);
-        Alert.alert("Dialer", "Failed to open the phone app.");
+        callStartedAtRef.current = null;
+        Alert.alert("Dialer", "Failed to place the call.");
       }
     },
     [phoneNumber, startCallRecord]

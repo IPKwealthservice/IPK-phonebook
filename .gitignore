@@ -70,3 +70,5 @@ build/
 *.iml
 package-lock.json
 package-lock.json
+app.json
+env.ts

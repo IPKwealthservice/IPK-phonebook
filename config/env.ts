@@ -20,7 +20,7 @@ const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
 const API_URL =
   extra.EXPO_PUBLIC_API_URL ??
   process.env.EXPO_PUBLIC_API_URL ??
-  "http://192.168.0.111:3333"; // fallback (change if you want)
+  "http://192.168.0.121:3333"; // fallback (change if you want)
 
 // Always derive GraphQL URL from config, NEVER from hostUri/Platform
 const GRAPHQL_URL =

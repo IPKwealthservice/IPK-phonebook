@@ -7,8 +7,7 @@ import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 
-
-
+import { LogBox } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 export default function RootLayout() {
@@ -24,6 +23,13 @@ export default function RootLayout() {
   useEffect(() => {
     setReady(true);
   }, [segments]);
+
+  useEffect(() => {
+    // Silence SafeAreaView deprecation spam originating from dependencies
+    LogBox.ignoreLogs([
+      "SafeAreaView has been deprecated",
+    ]);
+  }, []);
 
   useEffect(() => {
     initializeAuthState();

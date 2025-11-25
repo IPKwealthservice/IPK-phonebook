@@ -65,6 +65,9 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
     preview: {
       borderRadius: theme.radii.md,
       padding: theme.spacing.md,
-      gap: theme.spacing.xs
+      gap: theme.spacing.xs,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.card,
     }
   });

@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
 import { useTheme } from "@/core/theme/ThemeProvider";
 import { FloatingAssistiveBall } from "@/components/ui/FloatingAssistiveBall";
@@ -12,10 +13,12 @@ import { Text } from "@/components/ui/Text";
 import { formatPhone } from "@/core/utils/format";
 import { ipkLeadPipeline } from "@/features/leads/data/ipkLeadModel";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { placeDirectCall } from "@/core/utils/directCall";
 
 export default function TabsLayout() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [dialOpen, setDialOpen] = useState(false);
   const activeCall = useCallStore((state) => state.activeCall);
   const startCall = useCallStore((state) => state.startCall);
@@ -38,13 +41,20 @@ export default function TabsLayout() {
     );
   }, [activeCall]);
 
-  const handleCall = (num: string) => {
+  const handleCall = async (num: string) => {
     const number = num.replace(/\s+/g, "");
     if (!number) {
       toast("Enter a number");
       return;
     }
+    // Track call state locally and trigger native dialer immediately
     startCall(num);
+    const success = await placeDirectCall(number);
+    if (!success) {
+      endCall();
+      toast("Unable to start call");
+      return;
+    }
     setDialOpen(false);
   };
 
@@ -80,28 +90,72 @@ export default function TabsLayout() {
     };
   }, [activeCall, endCall]);
 
+  // Keep bottom tab bar clear of the Android navigation bar (edge-to-edge is on)
+  const tabBarInset = Math.max(insets.bottom, 12);
+  const tabBarHeight = 54 + tabBarInset;
+
   return (
     <View style={{ flex: 1 }}>
       <Tabs
+        sceneContainerStyle={{ backgroundColor: theme.colors.background }}
         screenOptions={{
           headerStyle: { backgroundColor: theme.colors.background },
           headerTintColor: theme.colors.text,
           tabBarStyle: {
             backgroundColor: theme.colors.card,
             borderTopColor: theme.colors.border,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            height: tabBarHeight,
+            paddingTop: 4,
+            paddingBottom: tabBarInset,
+            paddingHorizontal: 12,
           },
           tabBarActiveTintColor: theme.colors.primary,
           tabBarInactiveTintColor: theme.colors.muted,
+          tabBarItemStyle: { flex: 1 },
+          tabBarLabelStyle: { marginTop: 0, fontSize: 12, fontWeight: "600" },
         }}
       >
         {/* Home tab (was showing as "index") */}
         <Tabs.Screen
           name="index"
           options={{
-            title: "Home",
-            tabBarLabel: "Home",
+            title: "IPK-home",
+            tabBarLabel: "IPK-home",
             tabBarIcon: ({ color, size }) => (
               <MaterialIcons name="home" color={color} size={size} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="followups"
+          options={{
+            title: "Today's Follow-ups",
+            tabBarButton: () => null, // keep it off the bottom bar; navigated from Home action
+            headerShown: true,
+            headerLeft: () => (
+              <Pressable
+                onPress={() => router.back()}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  marginLeft: 8,
+                  borderRadius: 12,
+                  backgroundColor:
+                    theme.scheme === "dark" ? "#111827" : theme.colors.card,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: theme.colors.border,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={20}
+                  color={theme.colors.text}
+                />
+              </Pressable>
             ),
           }}
         />

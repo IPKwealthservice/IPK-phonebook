@@ -1,8 +1,9 @@
-import { useCallback } from "react";
 import * as Linking from "expo-linking";
+import { useCallback } from "react";
 
-import { Contact } from "@/features/contacts/types";
 import { toast } from "@/components/feedback/Toast";
+import { placeDirectCall } from "@/core/utils/directCall";
+import { Contact } from "@/features/contacts/types";
 import { useCallStore } from "@/features/phone/store/call.store";
 
 export const useContactActions = () => {
@@ -14,17 +15,19 @@ export const useContactActions = () => {
         toast("No phone number available");
         return;
       }
-      const normalized = contact.phone.replace(/\s|[-()]/g, "");
-      const url = `tel:${normalized}`;
+      
       try {
-        const supported = await Linking.canOpenURL(url);
-        if (supported) {
-          startCall(contact.phone);
-          await Linking.openURL(url);
-        } else {
-          toast("Calling not supported on this device");
+        // Record the call attempt in store
+        startCall(contact.phone);
+        
+        // Place direct call - this will initiate the call immediately
+        const success = await placeDirectCall(contact.phone);
+        
+        if (!success) {
+          toast("Unable to start call");
         }
-      } catch {
+      } catch (error) {
+        console.error("Error initiating call:", error);
         toast("Unable to start call");
       }
     },

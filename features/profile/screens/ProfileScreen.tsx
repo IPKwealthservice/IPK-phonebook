@@ -1,13 +1,36 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View, Image } from 'react-native';
+import React, { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/ui/Card';
 import { Text } from '@/components/ui/Text';
 import { useTheme } from '@/core/theme/ThemeProvider';
 import { useAuthStore } from '@/features/auth/store/auth.store';
+
+const getInitials = (value?: string | null) => {
+  if (!value) return 'IPK';
+  const parts = value.trim().split(/\s+/);
+  const first = parts[0]?.charAt(0) ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1]?.charAt(0) ?? '' : '';
+  return `${first}${last}`.toUpperCase() || 'IPK';
+};
+
+const humanizeRole = (role?: string | null) => {
+  switch (role) {
+    case 'ADMIN':
+      return 'Admin';
+    case 'MARKETING':
+      return 'Marketing';
+    case 'RM':
+      return 'Relationship Manager';
+    case 'STAFF':
+      return 'Staff';
+    default:
+      return role ?? '—';
+  }
+};
 
 export const ProfileScreen = () => {
   const theme = useTheme();
@@ -17,9 +40,12 @@ export const ProfileScreen = () => {
   const signOut = useAuthStore((s) => s.signOut);
 
   const name = user?.name ?? 'No Name';
+  const initials = useMemo(() => getInitials(name), [name]);
+  const roleLabel = humanizeRole(user?.role);
+  const department = user?.department ?? 'N/A';
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}> 
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}> 
       {/* Top header */}
       <View style={[styles.header, { backgroundColor: theme.colors.primary }]}> 
         <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backBtn}>
@@ -30,19 +56,34 @@ export const ProfileScreen = () => {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.avatarWrap}>
-          <View style={styles.avatarCircle}>
-            {/* Placeholder avatar; replace with Image when available */}
-            <MaterialIcons name="person" size={48} color="#FFFFFF" />
+        <Card style={styles.identityCard}>
+          <View style={styles.avatarWrap}>
+            <View style={styles.avatarHalo}>
+              <View style={styles.avatarCircle}>
+                <Text weight="bold" style={{ color: theme.colors.text }}>{initials}</Text>
+              </View>
+            </View>
+            <View style={{ alignItems: 'center' }}>
+              <Text weight="semibold" size="lg">{name}</Text>
+              <Text tone="muted" size="sm">{user?.email ?? '—'}</Text>
+              <View style={styles.badgeRow}>
+                <View style={styles.badge}>
+                  <Text size="xs" weight="bold" style={styles.badgeText}>{roleLabel}</Text>
+                </View>
+                <View style={styles.badgeMuted}>
+                  <Text size="xs" weight="semibold" style={styles.badgeMutedText}>{department}</Text>
+                </View>
+              </View>
+            </View>
           </View>
-          <Text weight="semibold" style={{ color: theme.colors.primary, marginTop: 8 }}>{name}</Text>
-        </View>
+        </Card>
 
         <Card style={styles.card}>
           <InfoField label="Name" value={user?.name ?? '-'} />
           <InfoField label="Email" value={user?.email ?? '-'} />
           <InfoField label="Phone" value={user?.phone ?? '-'} />
-          <InfoField label="Department" value={user?.department ?? '-'} />
+          <InfoField label="Department" value={department} />
+          <InfoField label="Role" value={roleLabel} />
           <InfoField label="Gender" value={(user as any)?.gender ?? '-'} />
         </Card>
 
@@ -95,13 +136,52 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) => StyleSheet.create({
   },
   headerTitle: { color: '#fff', fontSize: 18 },
   content: { padding: theme.spacing.lg, gap: theme.spacing.lg },
-  avatarWrap: { alignItems: 'center', marginTop: -36 },
-  avatarCircle: {
-    width: 96, height: 96, borderRadius: 48,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: '#fff'
+  identityCard: {
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+    backgroundColor: theme.scheme === 'dark' ? '#0F172A' : '#F8FAFF',
   },
+  avatarWrap: { alignItems: 'center', gap: theme.spacing.sm },
+  avatarHalo: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.scheme === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(70,95,255,0.12)',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  avatarCircle: {
+    width: 88, height: 88, borderRadius: 44,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.colors.card,
+    borderWidth: 2, borderColor: theme.colors.primary,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginTop: 6,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+  },
+  badgeText: { color: '#fff' },
+  badgeMuted: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  badgeMutedText: { color: theme.colors.text },
   card: { gap: theme.spacing.md, padding: theme.spacing.md },
   logoutBtn: {
     alignSelf: 'center',
