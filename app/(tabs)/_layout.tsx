@@ -1,36 +1,39 @@
-import { Tabs } from "expo-router";
+import { MaterialIcons } from "@expo/vector-icons";
+import { Tabs, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 
-import { useTheme } from "@/core/theme/ThemeProvider";
-import { FloatingAssistiveBall } from "@/components/ui/FloatingAssistiveBall";
-import { DialPad } from "@/components/ui/DialPad";
 import { toast } from "@/components/feedback/Toast";
-import { useCallStore } from "@/features/phone/store/call.store";
+import { DialPad } from "@/components/ui/DialPad";
+import { FloatingAssistiveBall } from "@/components/ui/FloatingAssistiveBall";
 import { Text } from "@/components/ui/Text";
+import { useTheme } from "@/core/theme/ThemeProvider";
+import { placeDirectCall } from "@/core/utils/directCall";
 import { formatPhone } from "@/core/utils/format";
 import { ipkLeadPipeline } from "@/features/leads/data/ipkLeadModel";
+import { useCallStore } from "@/features/phone/store/call.store";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { placeDirectCall } from "@/core/utils/directCall";
 
 export default function TabsLayout() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
   const [dialOpen, setDialOpen] = useState(false);
   const activeCall = useCallStore((state) => state.activeCall);
   const startCall = useCallStore((state) => state.startCall);
   const endCall = useCallStore((state) => state.endCall);
+
   const [callShowcase, setCallShowcase] = useState(false);
   const [callNotes, setCallNotes] = useState("");
   const [callTimer, setCallTimer] = useState("00:00");
   const [muted, setMuted] = useState(false);
   const [speaker, setSpeaker] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
+
   const normalizeNumber = (value: string) =>
     value.replace(/[\s\-\(\)]/g, "");
+
   const matchedLead = useMemo(() => {
     if (!activeCall) return null;
     const normalized = activeCall.normalized;
@@ -47,6 +50,7 @@ export default function TabsLayout() {
       toast("Enter a number");
       return;
     }
+
     // Track call state locally and trigger native dialer immediately
     startCall(num);
     const success = await placeDirectCall(number);
@@ -68,8 +72,10 @@ export default function TabsLayout() {
       setShowKeypad(false);
       return;
     }
+
     setCallShowcase(true);
     const startedAt = activeCall.startedAt;
+
     const updateTimer = () => {
       const elapsed = Date.now() - startedAt;
       const seconds = Math.floor(elapsed / 1000);
@@ -81,18 +87,30 @@ export default function TabsLayout() {
         .padStart(2, "0");
       setCallTimer(`${mins}:${secs}`);
     };
+
     updateTimer();
     const tick = setInterval(updateTimer, 1000);
     const hangup = setTimeout(() => endCall(), 1000 * 45);
+
     return () => {
       clearInterval(tick);
       clearTimeout(hangup);
     };
   }, [activeCall, endCall]);
 
-  // Keep bottom tab bar clear of the Android navigation bar (edge-to-edge is on)
-  const tabBarInset = Math.max(insets.bottom, 12);
-  const tabBarHeight = 54 + tabBarInset;
+  // --- Bottom tab bar sizing ---
+  const tabBarInset = insets.bottom;
+  const tabBarHeight = 52 + (tabBarInset || 0);
+
+  const baseTabBarStyle = {
+    backgroundColor: theme.colors.card,
+    borderTopColor: theme.colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    height: tabBarHeight,
+    paddingTop: 0,
+    paddingBottom: tabBarInset || 4,
+    paddingHorizontal: 12,
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -101,22 +119,18 @@ export default function TabsLayout() {
         screenOptions={{
           headerStyle: { backgroundColor: theme.colors.background },
           headerTintColor: theme.colors.text,
-          tabBarStyle: {
-            backgroundColor: theme.colors.card,
-            borderTopColor: theme.colors.border,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            height: tabBarHeight,
-            paddingTop: 4,
-            paddingBottom: tabBarInset,
-            paddingHorizontal: 12,
-          },
+          tabBarStyle: baseTabBarStyle,
           tabBarActiveTintColor: theme.colors.primary,
           tabBarInactiveTintColor: theme.colors.muted,
           tabBarItemStyle: { flex: 1 },
-          tabBarLabelStyle: { marginTop: 0, fontSize: 12, fontWeight: "600" },
+          tabBarLabelStyle: {
+            marginTop: 0,
+            fontSize: 12,
+            fontWeight: "600",
+          },
         }}
       >
-        {/* Home tab (was showing as "index") */}
+        {/* Home tab */}
         <Tabs.Screen
           name="index"
           options={{
@@ -127,12 +141,17 @@ export default function TabsLayout() {
             ),
           }}
         />
+
+        {/* Follow-ups: NOT a tab, just a shortcut screen with back button */}
         <Tabs.Screen
           name="followups"
           options={{
+            // not shown as a tab / deep link
+            href: null,
             title: "Today's Follow-ups",
-            tabBarButton: () => null, // keep it off the bottom bar; navigated from Home action
             headerShown: true,
+            // hide the bottom tab bar on this screen
+            tabBarStyle: { display: "none" },
             headerLeft: () => (
               <Pressable
                 onPress={() => router.back()}
@@ -142,7 +161,9 @@ export default function TabsLayout() {
                   marginLeft: 8,
                   borderRadius: 12,
                   backgroundColor:
-                    theme.scheme === "dark" ? "#111827" : theme.colors.card,
+                    theme.scheme === "dark"
+                      ? "#111827"
+                      : theme.colors.card,
                   borderWidth: StyleSheet.hairlineWidth,
                   borderColor: theme.colors.border,
                   flexDirection: "row",
@@ -159,6 +180,8 @@ export default function TabsLayout() {
             ),
           }}
         />
+
+        {/* Leads tab */}
         <Tabs.Screen
           name="leads"
           options={{
@@ -168,6 +191,8 @@ export default function TabsLayout() {
             ),
           }}
         />
+
+        {/* Explore tab */}
         <Tabs.Screen
           name="explore"
           options={{
@@ -188,12 +213,15 @@ export default function TabsLayout() {
       />
 
       {activeCall && callShowcase && (
-        <View style={[
-          styles.callOverlay,
-          { paddingBottom: Math.max(30, 12 + insets.bottom) },
-        ]}>
+        <View
+          style={[
+            styles.callOverlay,
+            { paddingBottom: Math.max(30, 12 + insets.bottom) },
+          ]}
+        >
           <View style={styles.callOverlayDecorOne} />
           <View style={styles.callOverlayDecorTwo} />
+
           <View style={styles.callOverlayContent}>
             <View style={styles.overlayHeader}>
               <Pressable
@@ -226,9 +254,13 @@ export default function TabsLayout() {
             <Text style={styles.overlayName}>
               {matchedLead?.name ?? formatPhone(activeCall.dialed)}
             </Text>
+
             {!!matchedLead?.companyName && (
-              <Text style={styles.overlayCompany}>{matchedLead.companyName}</Text>
+              <Text style={styles.overlayCompany}>
+                {matchedLead.companyName}
+              </Text>
             )}
+
             <Text style={styles.overlayNumber}>
               {formatPhone(activeCall.dialed)}
             </Text>
@@ -256,13 +288,21 @@ export default function TabsLayout() {
 
             <View style={styles.notesCard}>
               <View style={styles.notesHeader}>
-                <Text weight="semibold" size="sm" style={{ color: "#CBD5F5" }}>
+                <Text
+                  weight="semibold"
+                  size="sm"
+                  style={{ color: "#CBD5F5" }}
+                >
                   Call notes
                 </Text>
-                <Text size="sm" style={{ color: "#94A3B8", fontSize: 12 }}>
+                <Text
+                  size="sm"
+                  style={{ color: "#94A3B8", fontSize: 12 }}
+                >
                   {callNotes.length}/180
                 </Text>
               </View>
+
               <TextInput
                 value={callNotes}
                 onChangeText={(txt) => setCallNotes(txt.slice(0, 180))}
@@ -284,7 +324,12 @@ export default function TabsLayout() {
       )}
 
       {activeCall && !callShowcase && (
-        <View style={[styles.callBanner, { bottom: Math.max(24, 12 + insets.bottom) }]}>
+        <View
+          style={[
+            styles.callBanner,
+            { bottom: Math.max(24, 12 + insets.bottom) },
+          ]}
+        >
           <View>
             <Text size="sm" tone="muted">
               Calling
@@ -293,19 +338,32 @@ export default function TabsLayout() {
               {formatPhone(activeCall.dialed)}
             </Text>
           </View>
+
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Pressable
-              style={[styles.endButton, { marginRight: 12, backgroundColor: "#16A34A" }]}
+              style={[
+                styles.endButton,
+                { marginRight: 12, backgroundColor: "#16A34A" },
+              ]}
               onPress={() => setCallShowcase(true)}
             >
               <MaterialIcons name="open-in-full" size={18} color="#fff" />
-              <Text weight="bold" size="sm" style={{ color: "#fff", marginLeft: 6 }}>
+              <Text
+                weight="bold"
+                size="sm"
+                style={{ color: "#fff", marginLeft: 6 }}
+              >
                 Expand
               </Text>
             </Pressable>
+
             <Pressable style={styles.endButton} onPress={endCall}>
               <MaterialIcons name="call-end" size={20} color="#fff" />
-              <Text weight="bold" size="sm" style={{ color: "#fff", marginLeft: 6 }}>
+              <Text
+                weight="bold"
+                size="sm"
+                style={{ color: "#fff", marginLeft: 6 }}
+              >
                 End
               </Text>
             </Pressable>
@@ -323,12 +381,20 @@ type CallActionProps = {
   onPress?: () => void;
 };
 
-const CallActionButton = ({ icon, label, active, onPress }: CallActionProps) => (
+const CallActionButton = ({
+  icon,
+  label,
+  active,
+  onPress,
+}: CallActionProps) => (
   <Pressable
     onPress={onPress}
     style={[
       styles.actionButton,
-      active && { backgroundColor: "rgba(255,255,255,0.16)", borderColor: "#fff" },
+      active && {
+        backgroundColor: "rgba(255,255,255,0.16)",
+        borderColor: "#fff",
+      },
     ]}
   >
     <MaterialIcons
@@ -514,4 +580,3 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 });
-

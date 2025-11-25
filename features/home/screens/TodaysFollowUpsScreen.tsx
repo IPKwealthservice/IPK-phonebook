@@ -84,7 +84,6 @@ export function TodaysFollowUpsScreen() {
     const args: Record<string, any> = {
       page: 1,
       pageSize: 200,
-      followUpDueOnly: true,
     };
     if (user?.role === "RM" && user?.id) {
       args.assignedRmId = user.id;

@@ -1,0 +1,120 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`SafeAreaView can override padding styles 1`] = `
+<RNCSafeAreaProvider
+  onInsetsChange={[Function]}
+  style={
+    [
+      {
+        "flex": 1,
+      },
+      undefined,
+    ]
+  }
+>
+  <RNCSafeAreaView
+    edges={
+      {
+        "bottom": "additive",
+        "left": "additive",
+        "right": "additive",
+        "top": "additive",
+      }
+    }
+    style={
+      {
+        "paddingTop": 0,
+      }
+    }
+  >
+    <View />
+  </RNCSafeAreaView>
+</RNCSafeAreaProvider>
+`;
+
+exports[`SafeAreaView can set edges 1`] = `
+<RNCSafeAreaProvider
+  onInsetsChange={[Function]}
+  style={
+    [
+      {
+        "flex": 1,
+      },
+      undefined,
+    ]
+  }
+>
+  <RNCSafeAreaView
+    edges={
+      {
+        "bottom": "additive",
+        "left": "off",
+        "right": "off",
+        "top": "additive",
+      }
+    }
+  >
+    <View />
+  </RNCSafeAreaView>
+</RNCSafeAreaProvider>
+`;
+
+exports[`SafeAreaView can set edges value type 1`] = `
+<RNCSafeAreaProvider
+  onInsetsChange={[Function]}
+  style={
+    [
+      {
+        "flex": 1,
+      },
+      undefined,
+    ]
+  }
+>
+  <RNCSafeAreaView
+    edges={
+      {
+        "bottom": "maximum",
+        "left": "off",
+        "right": "off",
+        "top": "additive",
+      }
+    }
+    style={
+      {
+        "paddingBottom": 24,
+        "paddingTop": 24,
+      }
+    }
+  >
+    <View />
+  </RNCSafeAreaView>
+</RNCSafeAreaProvider>
+`;
+
+exports[`SafeAreaView renders 1`] = `
+<RNCSafeAreaProvider
+  onInsetsChange={[Function]}
+  style={
+    [
+      {
+        "flex": 1,
+      },
+      undefined,
+    ]
+  }
+>
+  <RNCSafeAreaView
+    edges={
+      {
+        "bottom": "additive",
+        "left": "additive",
+        "right": "additive",
+        "top": "additive",
+      }
+    }
+  >
+    <View />
+  </RNCSafeAreaView>
+</RNCSafeAreaProvider>
+`;

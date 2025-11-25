@@ -402,6 +402,11 @@ export function usePhoneCall(): UsePhoneCallReturn {
         }
 
         console.log(wasConnected ? "Call connected" : "Call not connected");
+        if (durationSeconds != null) {
+          console.log(
+            `Call duration ${durationSeconds}s${resolvedLead ? ` with ${resolvedLead.name ?? resolvedLead.phone ?? "lead"}` : ""}`
+          );
+        }
 
         setCallDurationSeconds(durationSeconds);
         setIsCalling(false);
@@ -423,6 +428,13 @@ export function usePhoneCall(): UsePhoneCallReturn {
         }
 
         endCallRef.current?.();
+
+        if (Platform.OS === "android") {
+          // Bring the app back to the foreground after the call ends
+          Linking.openURL("ipkphonebook://").catch(() => {
+            // Ignore failures (e.g., if app is already foregrounded)
+          });
+        }
       } catch (error) {
         console.error("Failed to finalize call", error);
       } finally {
@@ -477,11 +489,15 @@ export function usePhoneCall(): UsePhoneCallReturn {
             setCallDurationSeconds(null);
             console.log("Dialing detected - waiting for connection");
           }
-          if (incomingCallNumberRef.current && !callConnectedAtRef.current) {
+          if (!callConnectedAtRef.current) {
             const now = Date.now();
             setCallConnectedAt(now);
             callConnectedAtRef.current = now;
-            console.log("Call connected (incoming answered)");
+            const originLabel =
+              callOriginRef.current === "incoming" || incomingCallNumberRef.current
+                ? "incoming"
+                : "outgoing";
+            console.log(`Call connected (${originLabel} answered)`);
           }
           break;
         case "Connected":
