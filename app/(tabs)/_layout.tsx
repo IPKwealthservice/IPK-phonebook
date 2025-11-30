@@ -1,5 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, usePathname, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
@@ -18,6 +18,7 @@ export default function TabsLayout() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
 
   const [dialOpen, setDialOpen] = useState(false);
   const activeCall = useCallStore((state) => state.activeCall);
@@ -192,6 +193,17 @@ export default function TabsLayout() {
           }}
         />
 
+        {/* Calls tab */}
+        <Tabs.Screen
+          name="calls"
+          options={{
+            title: "Calls",
+            tabBarIcon: ({ color, size }) => (
+              <MaterialIcons name="call" color={color} size={size} />
+            ),
+          }}
+        />
+
         {/* Explore tab */}
         <Tabs.Screen
           name="explore"
@@ -205,7 +217,9 @@ export default function TabsLayout() {
       </Tabs>
 
       {/* Assistive ball + DialPad overlay */}
-      <FloatingAssistiveBall onPress={() => setDialOpen(true)} />
+      {!(pathname === "/(tabs)" || pathname === "/(tabs)/index" || pathname === "/") && (
+        <FloatingAssistiveBall onPress={() => setDialOpen(true)} />
+      )}
       <DialPad
         visible={dialOpen}
         onClose={() => setDialOpen(false)}
