@@ -248,3 +248,182 @@ export const UPDATE_LEAD_STATUS = gql`
   }
 `;
 
+export const GET_FULL_LEAD_PROFILE = gql`
+  query FullLeadProfile($leadId: ID!) {
+    lead: leadDetailWithTimeline(leadId: $leadId, eventsLimit: 50) {
+      id
+      leadCode
+      name
+      firstName
+      lastName
+      phone
+      phones {
+        id
+        number
+        isPrimary
+        isWhatsapp
+        label
+      }
+      email
+      gender
+      age
+      location
+      product
+      investmentRange
+      sipAmount
+      leadSource
+      referralName
+      referralCode
+      createdAt
+      approachAt
+      updatedAt
+      lastContactedAt
+      clientStage
+      stageFilter
+      status
+      nextActionDueAt
+      occupations {
+        profession
+        designation
+        companyName
+        startedAt
+        endedAt
+      }
+      remark {
+        at
+        byName
+        text
+      }
+      bioText
+      clientQa {
+        question
+        answer
+      }
+      events {
+        id
+        type
+        text
+        occurredAt
+      }
+    }
+
+    applications: accountApplicationsByLead(leadId: $leadId) {
+      id
+      applicationStatus
+      kycStatus
+      riskProfile
+      submittedAt
+      reviewedAt
+      approvedAt
+      declinedAt
+    }
+  }
+`;
+
+// Separate optimized queries for different tabs
+
+// Home Tab Query - Optimized for dashboard with stage grouping
+export const HOME_LEADS_QUERY = gql`
+  query HomeLeads($page: Int!, $pageSize: Int!) {
+    myAssignedLeads(args: { page: $page, pageSize: $pageSize }) {
+      items {
+        id
+        leadCode
+        name
+        phone
+        leadSource
+        clientStage
+        assignedRM
+        assignedRmId
+        nextActionDueAt
+        createdAt
+        updatedAt
+        status
+      }
+      page
+      pageSize
+      total
+    }
+  }
+`;
+
+// Leads Tab Query - Optimized for full lead list view
+export const LEADS_TAB_QUERY = gql`
+  query LeadsTab($args: LeadListArgs!) {
+    leads(args: $args) {
+      items {
+        id
+        leadCode
+        name
+        phone
+        leadSource
+        clientStage
+        status
+        assignedRM
+        assignedRmId
+        nextActionDueAt
+        createdAt
+        updatedAt
+        lastContactedAt
+      }
+      page
+      pageSize
+      total
+    }
+  }
+`;
+
+// Follow-ups Tab Query - Optimized for today's follow-ups
+export const FOLLOWUPS_TAB_QUERY = gql`
+  query FollowupsTab($args: LeadListArgs!) {
+    leads(args: $args) {
+      items {
+        id
+        leadCode
+        name
+        phone
+        leadSource
+        clientStage
+        status
+        assignedRM
+        assignedRmId
+        nextActionDueAt
+        createdAt
+        updatedAt
+      }
+      page
+      pageSize
+      total
+    }
+  }
+`;
+
+// Calls Tab Query - Optimized for call history and pending calls
+export const CALLS_TAB_QUERY = gql`
+  query CallsTab($leadId: ID, $limit: Int, $includeMissed: Boolean) {
+    pendingLeadCallLogs(leadId: $leadId, limit: $limit, includeMissed: $includeMissed) {
+      id
+      leadId
+      phoneNumber
+      direction
+      status
+      occurredAt
+      durationSec
+      failReason
+      nextFollowUpAt
+      createdByName
+    }
+    missedLeadCalls(leadId: $leadId, limit: $limit) {
+      id
+      leadId
+      phoneNumber
+      direction
+      status
+      occurredAt
+      durationSec
+      failReason
+      nextFollowUpAt
+      createdByName
+    }
+  }
+`;

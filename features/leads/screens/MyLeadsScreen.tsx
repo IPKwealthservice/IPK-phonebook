@@ -91,8 +91,14 @@ export function MyLeadsScreen() {
   const [visible, setVisible] = useState(false);
 
   const openLead = (id: string) => {
+    console.log('MyLeadsScreen: Opening lead with ID:', id);
     setDetailId(id);
     setVisible(true);
+  };
+
+  const closeLead = () => {
+    setVisible(false);
+    setTimeout(() => setDetailId(null), 300);
   };
 
   const placeCall = async (phone?: string | null) => {
@@ -207,7 +213,7 @@ export function MyLeadsScreen() {
         )}
       />
 
-      <LeadDetailSheet leadId={detailId} visible={visible} onClose={() => setVisible(false)} />
+      <LeadDetailSheet leadId={detailId} visible={visible} onClose={closeLead} />
     </SafeAreaView>
   );
 }
