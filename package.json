@@ -8,15 +8,13 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint",
-    "postinstall": "node ./scripts/apply-huddle01-patch.js"
+    "lint": "expo lint"
   },
   "dependencies": {
     "@apollo/client": "^4.0.9",
     "@expo-google-fonts/outfit": "^0.4.3",
     "@expo-google-fonts/poppins": "^0.4.1",
     "@expo/vector-icons": "^15.0.2",
-    "@huddle01/react-native-call-detection": "^0.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-navigation/bottom-tabs": "^7.4.0",

@@ -23,7 +23,7 @@ type CallBucket = {
 export function CallsScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const { startCall } = usePhoneCall();
+  const { startCall, isCalling, activeLead } = usePhoneCall();
 
   const buckets: CallBucket[] = useMemo(
     () => [
@@ -75,6 +75,32 @@ export function CallsScreen() {
           </Text>
         </View>
 
+        {/* Live call / incoming overlay */}
+        {isCalling && (
+          <Card style={styles.liveCallCard}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={styles.liveCallIcon}>
+                <MaterialIcons name="phone-in-talk" size={20} color="#22c55e" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text weight="semibold">Active call</Text>
+                {activeLead ? (
+                  <>
+                    <Text size="sm" tone="muted">
+                      {activeLead.name ?? "Lead"} •{" "}
+                      {activeLead.phone ? formatPhone(activeLead.phone) : ""}
+                    </Text>
+                  </>
+                ) : (
+                  <Text size="sm" tone="muted">
+                    Call in progress…
+                  </Text>
+                )}
+              </View>
+            </View>
+          </Card>
+        )}
+
         <Card style={styles.bucketCard}>
           <View style={styles.tabRow}>
             {buckets.map((bucket) => {
@@ -86,9 +112,10 @@ export function CallsScreen() {
                   style={[
                     styles.tabPill,
                     active && {
-                      backgroundColor: bucket.tone === "error"
-                        ? "rgba(239,68,68,0.15)"
-                        : "rgba(70,95,255,0.12)",
+                      backgroundColor:
+                        bucket.tone === "error"
+                          ? "rgba(239,68,68,0.15)"
+                          : "rgba(70,95,255,0.12)",
                       borderColor:
                         bucket.tone === "error"
                           ? "#EF4444"
@@ -242,6 +269,22 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       gap: theme.spacing.md,
     },
     header: { gap: 4 },
+    liveCallCard: {
+      padding: theme.spacing.md,
+      borderRadius: 16,
+      backgroundColor: "rgba(16,185,129,0.06)",
+      borderWidth: 1,
+      borderColor: "rgba(16,185,129,0.25)",
+      marginBottom: theme.spacing.sm,
+    },
+    liveCallIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(34,197,94,0.1)",
+    },
     bucketCard: { gap: theme.spacing.sm },
     tabRow: {
       flexDirection: "row",
