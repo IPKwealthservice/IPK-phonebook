@@ -20,8 +20,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import CallLogs from "react-native-call-log";
 import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
+import { fetchRecentCalls } from "@/core/phone/callEvents";
 import {
   dpStyles,
   getActionIconSizeStyles,
@@ -170,22 +170,20 @@ export const DialPad: React.FC<DialPadProps> = ({
           }
         }
 
-        const entries: any[] = await CallLogs.load(30);
-        const mapped = entries
-          .map((entry, index) => {
-            const digits = sanitizeNumber(
-              entry?.phoneNumber || entry?.phone || entry?.number || ""
-            ).replace(/[^\d+]/g, "");
-            const tsRaw = Number(entry?.timestamp ?? entry?.dateTime ?? 0);
-            const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : Date.now();
-            if (!digits) return null;
-            return {
-              id: String(entry?.timestamp ?? `${ts}-${index}`),
-              number: digits,
-              timestamp: ts,
-            } as RecentCall;
-          })
-          .filter(Boolean) as RecentCall[];
+        const entries = await fetchRecentCalls(30);
+        const mapped = entries.map((entry, index) => {
+          const digits = sanitizeNumber(entry?.number ?? "");
+          const ts =
+            typeof entry?.timestamp === "number" && entry.timestamp > 0
+              ? entry.timestamp
+              : Date.now();
+          return {
+            id: String(entry?.timestamp ?? `${ts}-${index}`),
+            number: digits,
+            timestamp: ts,
+          } as RecentCall;
+        });
+
         if (!cancelled) {
           setRecentCalls(mapped);
         }

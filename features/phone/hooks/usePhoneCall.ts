@@ -11,10 +11,9 @@ import {
 import { apolloClient } from "@/core/graphql/apolloClient";
 import { auth } from "@/core/firebase/firebaseConfig";
 import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
-import CallLogs from "react-native-call-log";
-
 import {
   ensureDialerSetup,
+  lookupCallLog,
   subscribeCallAnswered,
   subscribeCallEnded,
   subscribeCallMissed,
@@ -131,23 +130,16 @@ const getMatchingCallLog = async (
     const normalizedTarget = normalizeDigits(phone);
     if (!normalizedTarget) return null;
 
-    const entries: any[] = await CallLogs.load(30);
-    const windowStart = startedAt ? startedAt - 20000 : null;
-
-    const match = entries.find((entry) => {
-      const digits = normalizeDigits(entry?.phoneNumber);
-      const timestamp = Number(entry?.timestamp ?? 0);
-      if (windowStart && timestamp && timestamp < windowStart) {
-        return false;
-      }
-      return phoneNumbersMatch(normalizedTarget, digits);
-    });
-
+    const windowStart = startedAt ? startedAt - 20000 : 0;
+    const match = await lookupCallLog(normalizedTarget, windowStart);
     if (!match) return null;
 
-    const durationSeconds = Math.max(0, Number(match.duration ?? 0));
+    const durationSeconds = Math.max(0, Number(match.durationSeconds ?? 0));
     const type = String(match.type ?? "").toUpperCase();
-    const connected = durationSeconds > 0 && type !== "MISSED";
+    const connected =
+      durationSeconds > 0 &&
+      type !== "3" && // CallLog.MISSED_TYPE
+      type !== "MISSED";
 
     return { durationSeconds, connected };
   } catch (error) {

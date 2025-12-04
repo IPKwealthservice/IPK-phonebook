@@ -1,7 +1,23 @@
 // core/phone/callEvents.ts
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 
-const { CallEvents } = NativeModules;
+type NativeCallEvents = {
+  initialize: () => Promise<boolean> | boolean;
+  startListening: () => void;
+  stopListening: () => void;
+  isDefaultDialer: () => Promise<boolean>;
+  requestDefaultDialer: () => Promise<boolean>;
+  registerPhoneAccount: () => Promise<boolean>;
+  getLastCallForNumber: (
+    number: string,
+    sinceMs: number
+  ) => Promise<{ number?: string; durationSeconds?: number; type?: string } | null>;
+  getRecentCalls: (
+    limit: number
+  ) => Promise<{ number?: string; timestamp?: number; durationSeconds?: number; type?: string }[]>;
+};
+
+const { CallEvents } = NativeModules as { CallEvents?: NativeCallEvents };
 
 export type IncomingCallPayload = {
   phoneNumber?: string;
@@ -66,7 +82,46 @@ export async function ensureDialerSetup() {
     if (!isDefault) {
       await CallEvents.requestDefaultDialer();
     }
+    await CallEvents.initialize();
   } catch (e) {
     console.warn("Dialer setup failed", e);
+  }
+}
+
+export async function lookupCallLog(
+  number: string,
+  sinceMs: number
+): Promise<{ durationSeconds: number; type?: string } | null> {
+  if (Platform.OS !== "android" || !CallEvents) return null;
+  try {
+    const result = await CallEvents.getLastCallForNumber(number, sinceMs);
+    if (!result || typeof result.durationSeconds !== "number") return null;
+    return {
+      durationSeconds: Math.max(0, Math.round(result.durationSeconds)),
+      type: result.type,
+    };
+  } catch (e) {
+    console.warn("Call log lookup failed", e);
+    return null;
+  }
+}
+
+export async function fetchRecentCalls(limit = 15) {
+  if (Platform.OS !== "android" || !CallEvents) return [];
+  try {
+    const rows = await CallEvents.getRecentCalls(limit);
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((row) => ({
+        number: row?.number ?? "",
+        timestamp: typeof row?.timestamp === "number" ? row.timestamp : 0,
+        durationSeconds:
+          typeof row?.durationSeconds === "number" ? row.durationSeconds : 0,
+        type: row?.type,
+      }))
+      .filter((row) => !!row.number);
+  } catch (e) {
+    console.warn("Recent call lookup failed", e);
+    return [];
   }
 }

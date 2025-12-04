@@ -287,7 +287,7 @@ export default function CallFollowUpModal({
                 />
               </View>
 
-              <View style={styles.field}>
+              {/* <View style={styles.field}>
                 <Text style={styles.label}>Next action</Text>
                 <TextInput
                   value={nextAction}
@@ -296,7 +296,7 @@ export default function CallFollowUpModal({
                   placeholderTextColor="#94A3B8"
                   style={styles.input}
                 />
-              </View>
+              </View> */}
             </ScrollView>
 
             <Pressable
