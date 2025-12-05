@@ -1,13 +1,15 @@
+import { useQuery } from "@apollo/client/react";
 import { MaterialIcons } from "@expo/vector-icons";
-import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
+import { CALLS_TAB_QUERY, LEADS_QUERY } from "@/core/graphql/queries";
 import { useTheme } from "@/core/theme/ThemeProvider";
-import { formatPhone } from "@/core/utils/format";
-import { leadCatalogue, Lead } from "@/features/home/data/leadData";
+import { formatPhone, humanizeEnum } from "@/core/utils/format";
+import { useAuthStore } from "@/features/auth/store/auth.store";
 import { usePhoneCall } from "@/features/phone/hooks/usePhoneCall";
 
 type CallBucketKey = "pending" | "missed";
@@ -17,32 +19,150 @@ type CallBucket = {
   label: string;
   description: string;
   tone: "primary" | "error";
-  entries: Lead[];
+  count: number;
+};
+
+type FollowUpLead = {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  clientStage?: string | null;
+  leadSource?: string | null;
+  nextActionDueAt?: string | null;
+};
+
+type MissedCallLog = {
+  id: string;
+  leadId?: string | null;
+  phoneNumber?: string | null;
+  direction?: string | null;
+  status?: string | null;
+  failReason?: string | null;
+  occurredAt?: string | null;
+  createdByName?: string | null;
+};
+
+const isSameDay = (iso?: string | null) => {
+  if (!iso) return false;
+  const date = new Date(iso);
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+};
+
+const formatDueLabel = (iso?: string | null) => {
+  if (!iso) return "No follow-up time";
+  const due = new Date(iso);
+  const now = new Date();
+  const timeLabel = due.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const diffMs = due.getTime() - now.getTime();
+  if (Math.abs(diffMs) < 60 * 1000) {
+    return `Due now · ${timeLabel}`;
+  }
+  if (diffMs < 0) {
+    const mins = Math.max(1, Math.round(Math.abs(diffMs) / 60000));
+    return `Overdue by ${mins}m · ${timeLabel}`;
+  }
+  const mins = Math.round(diffMs / 60000);
+  return `Due in ${mins}m · ${timeLabel}`;
+};
+
+const formatOccurredAt = (iso?: string | null) => {
+  if (!iso) return "Time not captured";
+  const dt = new Date(iso);
+  return dt.toLocaleString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+  });
 };
 
 export function CallsScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const { startCall, isCalling, activeLead } = usePhoneCall();
+  const user = useAuthStore((s) => s.user);
+
+  const leadArgs = useMemo(() => {
+    const args: Record<string, any> = {
+      page: 1,
+      pageSize: 200,
+    };
+    if (user?.role === "RM" && user?.id) {
+      args.assignedRmId = user.id;
+    }
+    return args;
+  }, [user?.id, user?.role]);
+
+  const {
+    data: callData,
+    loading: callsLoading,
+    refetch: refetchCalls,
+  } = useQuery(CALLS_TAB_QUERY, {
+    variables: { limit: 50, includeMissed: true },
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true,
+  });
+
+  const {
+    data: leadsData,
+    loading: leadsLoading,
+    refetch: refetchLeads,
+  } = useQuery(LEADS_QUERY, {
+    variables: { args: leadArgs },
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true,
+  });
+
+  const pendingLeads: FollowUpLead[] = useMemo(() => {
+    const items: FollowUpLead[] = (leadsData as any)?.leads?.items ?? [];
+    return items
+      .filter((lead) => isSameDay(lead?.nextActionDueAt))
+      .sort((a, b) => {
+        const left = a?.nextActionDueAt
+          ? new Date(a.nextActionDueAt).getTime()
+          : 0;
+        const right = b?.nextActionDueAt
+          ? new Date(b.nextActionDueAt).getTime()
+          : 0;
+        return left - right;
+      });
+  }, [leadsData]);
+
+  const missedCalls: MissedCallLog[] = useMemo(() => {
+    const items: MissedCallLog[] = (callData as any)?.missedLeadCalls ?? [];
+    return [...items].sort((a, b) => {
+      const left = a?.occurredAt ? new Date(a.occurredAt).getTime() : 0;
+      const right = b?.occurredAt ? new Date(b.occurredAt).getTime() : 0;
+      return right - left;
+    });
+  }, [callData]);
 
   const buckets: CallBucket[] = useMemo(
     () => [
       {
         key: "pending",
         label: "Pending",
-        description: "Follow up on these calls before they slip.",
+        description: "Follow up on today's scheduled calls.",
         tone: "primary",
-        entries: leadCatalogue["Pending Calls"] ?? [],
+        count: pendingLeads.length,
       },
       {
         key: "missed",
         label: "Missed",
         description: "Call back recent missed calls to re-engage.",
         tone: "error",
-        entries: leadCatalogue["Missed Calls"] ?? [],
+        count: missedCalls.length,
       },
     ],
-    []
+    [missedCalls.length, pendingLeads.length]
   );
 
   const [activeBucket, setActiveBucket] = useState<CallBucketKey>("pending");
@@ -52,18 +172,31 @@ export function CallsScreen() {
     [activeBucket, buckets]
   );
 
-  const handleCallLead = async (lead: Lead) => {
-    await startCall({
-      leadId: lead.id,
-      leadName: lead.name,
-      phone: lead.phone,
-    });
-  };
+  const handleCallLead = useCallback(
+    async (lead: { id?: string; name?: string | null; phone?: string | null }) => {
+      if (!lead.phone) return;
+      await startCall({
+        leadId: lead.id,
+        leadName: lead.name ?? undefined,
+        phone: lead.phone ?? "",
+      });
+    },
+    [startCall]
+  );
+
+  const refreshing = callsLoading || leadsLoading;
+  const onRefresh = useCallback(() => {
+    refetchCalls();
+    refetchLeads();
+  }, [refetchCalls, refetchLeads]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <ScrollView
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
@@ -75,7 +208,6 @@ export function CallsScreen() {
           </Text>
         </View>
 
-        {/* Live call / incoming overlay */}
         {isCalling && (
           <Card style={styles.liveCallCard}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -85,15 +217,13 @@ export function CallsScreen() {
               <View style={{ flex: 1 }}>
                 <Text weight="semibold">Active call</Text>
                 {activeLead ? (
-                  <>
-                    <Text size="sm" tone="muted">
-                      {activeLead.name ?? "Lead"} •{" "}
-                      {activeLead.phone ? formatPhone(activeLead.phone) : ""}
-                    </Text>
-                  </>
+                  <Text size="sm" tone="muted">
+                    {activeLead.name ?? "Lead"}{" "}
+                    {activeLead.phone ? `· ${formatPhone(activeLead.phone)}` : ""}
+                  </Text>
                 ) : (
                   <Text size="sm" tone="muted">
-                    Call in progress…
+                    Call in progress
                   </Text>
                 )}
               </View>
@@ -144,7 +274,7 @@ export function CallsScreen() {
                         color: active ? "#fff" : theme.colors.text,
                       }}
                     >
-                      {bucket.entries.length}
+                      {bucket.count}
                     </Text>
                   </View>
                 </Pressable>
@@ -161,96 +291,151 @@ export function CallsScreen() {
         </Card>
 
         <View style={{ gap: theme.spacing.md }}>
-          {currentBucket.entries.map((lead) => (
-            <Card key={lead.id} style={styles.callCard}>
-              <View style={styles.cardRow}>
-                <View style={styles.avatar}>
-                  <Text weight="bold" style={{ color: theme.colors.primary }}>
-                    {lead.name.charAt(0)}
-                  </Text>
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text weight="semibold">{lead.name}</Text>
-                  <Text size="sm" tone="muted">
-                    {formatPhone(lead.phone)}
-                  </Text>
-                  {lead.company ? (
-                    <Text size="sm" tone="muted">
-                      {lead.company}
-                    </Text>
-                  ) : null}
-                  <View style={styles.statusRow}>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        currentBucket.tone === "error"
-                          ? styles.statusDanger
-                          : styles.statusPrimary,
-                      ]}
-                    >
-                      <MaterialIcons
-                        name={
-                          currentBucket.tone === "error"
-                            ? "call-missed"
-                            : "schedule"
-                        }
-                        size={14}
-                        color={
-                          currentBucket.tone === "error"
-                            ? "#B91C1C"
-                            : theme.colors.primary
-                        }
-                      />
-                      <Text
-                        size="xs"
-                        weight="bold"
-                        style={{
-                          color:
-                            currentBucket.tone === "error"
-                              ? "#B91C1C"
-                              : theme.colors.primary,
-                        }}
-                      >
-                        {currentBucket.label}
-                      </Text>
-                    </View>
-                    <Text size="sm" tone="muted">
-                      {lead.status}
+          {activeBucket === "pending" &&
+            pendingLeads.map((lead) => (
+              <Card key={lead.id} style={styles.callCard}>
+                <View style={styles.cardRow}>
+                  <View style={styles.avatar}>
+                    <Text weight="bold" style={{ color: theme.colors.primary }}>
+                      {String(lead.name || "L").charAt(0)}
                     </Text>
                   </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text weight="semibold">{lead.name ?? "Lead"}</Text>
+                    {lead.phone ? (
+                      <Text size="sm" tone="muted">
+                        {formatPhone(lead.phone)}
+                      </Text>
+                    ) : null}
+                    <Text size="sm" tone="muted">
+                      {humanizeEnum(lead.clientStage ?? "FOLLOWING_UP")}
+                      {lead.leadSource ? ` · ${lead.leadSource}` : ""}
+                    </Text>
+                    <View style={styles.statusRow}>
+                      <View style={[styles.statusBadge, styles.statusPrimary]}>
+                        <MaterialIcons
+                          name="schedule"
+                          size={14}
+                          color={theme.colors.primary}
+                        />
+                        <Text
+                          size="xs"
+                          weight="bold"
+                          style={{
+                            color: theme.colors.primary,
+                          }}
+                        >
+                          Follow-up
+                        </Text>
+                      </View>
+                      <Text size="sm" tone="muted">
+                        {formatDueLabel(lead.nextActionDueAt)}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-              </View>
 
-              <Pressable
-                onPress={() => handleCallLead(lead)}
-                style={[
-                  styles.callButton,
-                  {
-                    backgroundColor:
-                      currentBucket.tone === "error"
-                        ? "#DC2626"
-                        : theme.colors.success,
-                  },
-                ]}
-              >
-                <MaterialIcons
-                  name="phone"
-                  size={18}
-                  color="#fff"
-                  style={{ marginRight: 6 }}
-                />
-                <Text weight="bold" size="sm" style={{ color: "#fff" }}>
-                  Call now
-                </Text>
-              </Pressable>
-            </Card>
-          ))}
+                {lead.phone ? (
+                  <Pressable
+                    onPress={() =>
+                      handleCallLead({
+                        id: lead.id,
+                        name: lead.name,
+                        phone: lead.phone,
+                      })
+                    }
+                    style={[
+                      styles.callButton,
+                      {
+                        backgroundColor: theme.colors.success,
+                      },
+                    ]}
+                  >
+                    <MaterialIcons
+                      name="phone"
+                      size={18}
+                      color="#fff"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text weight="bold" size="sm" style={{ color: "#fff" }}>
+                      Call now
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </Card>
+            ))}
 
-          {currentBucket.entries.length === 0 && (
+          {activeBucket === "missed" &&
+            missedCalls.map((call) => (
+              <Card key={call.id} style={styles.callCard}>
+                <View style={styles.cardRow}>
+                  <View style={[styles.avatar, { backgroundColor: "rgba(239,68,68,0.12)" }]}>
+                    <MaterialIcons name="call-missed" size={20} color="#DC2626" />
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text weight="semibold">
+                      {call.phoneNumber ? formatPhone(call.phoneNumber) : "Unknown number"}
+                    </Text>
+                    {call.leadId ? (
+                      <Text size="sm" tone="muted">
+                        Lead ID: {call.leadId}
+                      </Text>
+                    ) : null}
+                    <Text size="sm" tone="muted">
+                      {call.failReason ? humanizeEnum(call.failReason) : "Missed call"} ·{" "}
+                      {formatOccurredAt(call.occurredAt)}
+                    </Text>
+                    {call.createdByName ? (
+                      <Text size="sm" tone="muted">
+                        Logged by {call.createdByName}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                {call.phoneNumber ? (
+                  <Pressable
+                    onPress={() =>
+                      startCall({
+                        leadId: call.leadId ?? undefined,
+                        phone: call.phoneNumber ?? undefined,
+                      })
+                    }
+                    style={[
+                      styles.callButton,
+                      {
+                        backgroundColor: "#DC2626",
+                      },
+                    ]}
+                  >
+                    <MaterialIcons
+                      name="phone"
+                      size={18}
+                      color="#fff"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text weight="bold" size="sm" style={{ color: "#fff" }}>
+                      Call back
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </Card>
+            ))}
+
+          {activeBucket === "pending" && pendingLeads.length === 0 && (
             <Card style={{ alignItems: "center" }}>
-              <Text weight="semibold">No calls here</Text>
+              <Text weight="semibold">No pending calls for today</Text>
               <Text tone="muted" size="sm" style={{ textAlign: "center" }}>
-                You are all caught up. Switch tabs or sync new data.
+                You are all caught up on today's follow-ups.
+              </Text>
+            </Card>
+          )}
+
+          {activeBucket === "missed" && missedCalls.length === 0 && (
+            <Card style={{ alignItems: "center" }}>
+              <Text weight="semibold">No missed calls</Text>
+              <Text tone="muted" size="sm" style={{ textAlign: "center" }}>
+                New missed calls will show up here automatically.
               </Text>
             </Card>
           )}
@@ -335,6 +520,7 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       alignItems: "center",
       gap: 10,
       marginTop: 4,
+      flexWrap: "wrap",
     },
     statusBadge: {
       flexDirection: "row",

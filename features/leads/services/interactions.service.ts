@@ -1,7 +1,8 @@
 import { apolloClient } from "@/core/graphql/apolloClient";
 import {
   ADD_LEAD_INTERACTION,
-  LOG_LEAD_CALL,
+  MARK_LEAD_CALL_MISSED,
+  RECORD_LEAD_CALL,
   UPDATE_LEAD_DETAILS_AFTER_CALL,
   UPDATE_LEAD_REMARK,
   UPDATE_LEAD_STATUS,
@@ -96,6 +97,10 @@ export async function logCallInteraction(input: {
   nextAction: string;
   occurredAt?: string;
   outcome?: string;
+  direction?: "INCOMING" | "OUTGOING";
+  status?: "COMPLETED" | "PENDING" | "MISSED";
+  failReason?: string | null;
+  nextFollowUpAt?: string | null;
 }): Promise<void> {
   const {
     leadId,
@@ -105,6 +110,10 @@ export async function logCallInteraction(input: {
     nextAction,
     occurredAt,
     outcome,
+    direction,
+    status,
+    failReason,
+    nextFollowUpAt,
   } = input;
   if (!leadId) {
     console.warn("Skipping lead interaction: leadId missing");
@@ -132,16 +141,15 @@ export async function logCallInteraction(input: {
     leadId,
     phoneNumber: sanitizedPhone,
     durationSec: duration,
-    direction: "OUTGOING" as const,
-    text,
+    direction: (direction as any) ?? ("OUTGOING" as const),
+    status: (status as any) ?? ("COMPLETED" as const),
+    failReason: failReason ?? undefined,
+    nextFollowUpAt: nextFollowUpAt ?? (nextAction?.trim() ? undefined : null),
     occurredAt: occurredAt ?? new Date().toISOString(),
-    outcome:
-      (outcome as any) ??
-      (nextAction?.trim() ? "FOLLOW_UP_NEEDED" : "ANSWERED"),
   };
 
   await apolloClient.mutate({
-    mutation: LOG_LEAD_CALL,
+    mutation: RECORD_LEAD_CALL,
     variables: { input: logPayload },
   });
 
@@ -173,4 +181,53 @@ export async function updateLeadStatus(params: {
   });
 
   return data?.updateLeadStatus;
+}
+
+export async function recordLeadCallLog(input: {
+  leadId: string;
+  phoneNumber: string;
+  direction: "INCOMING" | "OUTGOING";
+  status: "COMPLETED" | "PENDING" | "MISSED";
+  durationSec?: number | null;
+  failReason?: string | null;
+  nextFollowUpAt?: string | null;
+  occurredAt?: string | null;
+}) {
+  const payload: Record<string, unknown> = {
+    leadId: input.leadId,
+    phoneNumber: input.phoneNumber,
+    direction: input.direction,
+    status: input.status,
+  };
+
+  if (input.durationSec !== undefined) payload.durationSec = input.durationSec;
+  if (input.failReason !== undefined) payload.failReason = input.failReason;
+  if (input.nextFollowUpAt !== undefined) payload.nextFollowUpAt = input.nextFollowUpAt;
+  if (input.occurredAt !== undefined) payload.occurredAt = input.occurredAt;
+
+  const { data } = await apolloClient.mutate({
+    mutation: RECORD_LEAD_CALL,
+    variables: { input: payload },
+  });
+
+  return data?.recordLeadCall;
+}
+
+export async function markLeadCallAsMissed(input: {
+  callLogId: string;
+  failReason?: string | null;
+  nextFollowUpAt?: string | null;
+}) {
+  const payload: Record<string, unknown> = {
+    callLogId: input.callLogId,
+  };
+  if (input.failReason !== undefined) payload.failReason = input.failReason;
+  if (input.nextFollowUpAt !== undefined) payload.nextFollowUpAt = input.nextFollowUpAt;
+
+  const { data } = await apolloClient.mutate({
+    mutation: MARK_LEAD_CALL_MISSED,
+    variables: { input: payload },
+  });
+
+  return data?.markLeadCallMissed;
 }

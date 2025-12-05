@@ -20,8 +20,10 @@ import {
   subscribeCallState,
   subscribeIncomingCall,
 } from "@/core/phone/callEvents";
+import { recordLeadCallLog } from "@/features/leads/services/interactions.service";
 
 export type ActiveLead = { id: string; name?: string; phone?: string } | null;
+type CallStatus = "connected" | "missed" | "no-answer" | "unreachable" | null;
 
 export interface UsePhoneCallReturn {
   phoneNumber: string;
@@ -29,6 +31,7 @@ export interface UsePhoneCallReturn {
 
   isCalling: boolean;
   isFollowUpOpen: boolean;
+  callStatus: CallStatus;
   callDurationSeconds: number | null;
   activeLead: ActiveLead;
 
@@ -234,6 +237,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const [phoneNumber, setPhoneNumber] = useState<string>("");
   const [isCalling, setIsCalling] = useState<boolean>(false);
   const [isFollowUpOpen, setIsFollowUpOpen] = useState<boolean>(false);
+  const [callStatus, setCallStatus] = useState<CallStatus>(null);
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
   const [callConnectedAt, setCallConnectedAt] = useState<number | null>(null);
   const [callDurationSeconds, setCallDurationSeconds] = useState<number | null>(
@@ -258,6 +262,8 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const dialedNumberRef = useRef<string | null>(null);
   const activeLeadRef = useRef<ActiveLead>(null);
   const finalizingRef = useRef<boolean>(false);
+  const callEndReasonRef = useRef<"unreachable" | null>(null);
+  const finalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isCallingRef.current = isCalling;
@@ -324,12 +330,29 @@ export function usePhoneCall(): UsePhoneCallReturn {
     if (finalizingRef.current) return;
     finalizingRef.current = true;
 
+    if (finalizeTimerRef.current) {
+      clearTimeout(finalizeTimerRef.current);
+      finalizeTimerRef.current = null;
+    }
+
+    const reschedule = (delayMs = 1200) => {
+      finalizingRef.current = false;
+      if (finalizeTimerRef.current) {
+        clearTimeout(finalizeTimerRef.current);
+      }
+      finalizeTimerRef.current = setTimeout(() => {
+        finalizeTimerRef.current = null;
+        finalizeCall().catch((e) => console.error(e));
+      }, delayMs);
+    };
+
     try {
       const connectedAt = callConnectedAtRef.current;
       const startedAt = callStartedAtRef.current;
       const isIncoming =
         callOriginRef.current === "incoming" ||
         !!incomingCallNumberRef.current;
+      const isOutgoing = callOriginRef.current === "outgoing";
       const matchedLead = isIncoming
         ? incomingMatchedLeadRef.current
         : activeLeadRef.current;
@@ -345,6 +368,8 @@ export function usePhoneCall(): UsePhoneCallReturn {
         setIncomingCallNumber(null);
         setCallConnectedAt(null);
         setIsFollowUpOpen(false);
+        setCallStatus(null);
+        callEndReasonRef.current = null;
         dialedNumberRef.current = null;
         callOriginRef.current = null;
         incomingMatchedLeadRef.current = null;
@@ -354,6 +379,16 @@ export function usePhoneCall(): UsePhoneCallReturn {
       let wasConnected = false;
       let durationSeconds: number | null = null;
 
+      if (
+        isOutgoing &&
+        startedAt &&
+        Date.now() - startedAt < 1200 &&
+        Platform.OS === "android"
+      ) {
+        reschedule(1200);
+        return;
+      }
+
       const logOutcome = await getMatchingCallLog(targetNumber, startedAt);
       if (logOutcome) {
         durationSeconds = logOutcome.durationSeconds;
@@ -361,13 +396,22 @@ export function usePhoneCall(): UsePhoneCallReturn {
       }
 
       if (durationSeconds == null) {
-        const timeToUse = connectedAt || startedAt;
-        const seconds = Math.max(
-          0,
-          Math.round((Date.now() - (timeToUse ?? Date.now())) / 1000)
-        );
-        durationSeconds = seconds;
-        wasConnected = wasConnected || !!connectedAt;
+        if (connectedAt) {
+          const seconds = Math.max(
+            0,
+            Math.round((Date.now() - connectedAt) / 1000)
+          );
+          durationSeconds = seconds;
+          wasConnected = true;
+        } else if (startedAt) {
+          const seconds = Math.max(
+            0,
+            Math.round((Date.now() - startedAt) / 1000)
+          );
+          durationSeconds = seconds;
+        } else {
+          durationSeconds = 0;
+        }
       }
 
       console.log(wasConnected ? "Call connected" : "Call not connected");
@@ -381,18 +425,59 @@ export function usePhoneCall(): UsePhoneCallReturn {
         );
       }
 
-      setCallDurationSeconds(durationSeconds);
+      const status: CallStatus = wasConnected
+        ? "connected"
+        : callEndReasonRef.current === "unreachable"
+        ? "unreachable"
+        : isIncoming
+        ? "missed"
+        : "no-answer";
+
+      if (!wasConnected) {
+        const leadIdForLog =
+          resolvedLead?.id ?? activeLeadRef.current?.id ?? null;
+        const phoneForLog =
+          targetNumber ??
+          resolvedLead?.phone ??
+          activeLeadRef.current?.phone ??
+          incomingCallNumberRef.current ??
+          null;
+
+        if (leadIdForLog && phoneForLog) {
+          try {
+            await recordLeadCallLog({
+              leadId: leadIdForLog,
+              phoneNumber: phoneForLog,
+              direction: isIncoming ? "INCOMING" : "OUTGOING",
+              status: "MISSED",
+              failReason:
+                callEndReasonRef.current === "unreachable"
+                  ? "BUSY"
+                  : "NO_ANSWER",
+              occurredAt: new Date().toISOString(),
+            });
+          } catch (err) {
+            console.warn("Failed to record missed call", err);
+          }
+        }
+      }
+
+      setCallStatus(status);
+      setCallDurationSeconds(durationSeconds ?? 0);
       setIsCalling(false);
       setCallStartedAt(null);
       setCallConnectedAt(null);
       setIncomingCallNumber(null);
+      callEndReasonRef.current = null;
 
-      const shouldShowFollowUp = isIncoming ? !!resolvedLead : hadDialedNumber;
-      if (shouldShowFollowUp) {
+      const shouldShowFollowUp = isOutgoing
+        ? hadDialedNumber
+        : wasConnected && (isIncoming ? !!resolvedLead : hadDialedNumber);
+      const followUpLead = resolvedLead ?? activeLeadRef.current;
+
+      if (shouldShowFollowUp && followUpLead) {
         setIsFollowUpOpen(true);
-        if (resolvedLead) {
-          setActiveLead(resolvedLead);
-        }
+        setActiveLead(followUpLead);
       } else {
         setIsFollowUpOpen(false);
         if (isIncoming) {
@@ -402,8 +487,16 @@ export function usePhoneCall(): UsePhoneCallReturn {
 
       endCallRef.current?.();
 
-      if (Platform.OS === "android") {
+      if (Platform.OS === "android" && isOutgoing) {
         Linking.openURL("ipkphonebook://").catch(() => {});
+      }
+
+      if (!wasConnected && !isIncoming) {
+        const message =
+          status === "unreachable"
+            ? "Not reachable / switched off"
+            : "Not Connected";
+        Alert.alert("Call status", message);
       }
     } catch (error) {
       console.error("Failed to finalize call", error);
@@ -411,6 +504,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
       dialedNumberRef.current = null;
       incomingMatchedLeadRef.current = null;
       callOriginRef.current = null;
+      callEndReasonRef.current = null;
       finalizingRef.current = false;
     }
   }, []);
@@ -435,7 +529,23 @@ export function usePhoneCall(): UsePhoneCallReturn {
 
     const unsubState = subscribeCallState(({ state }) => {
       const s = state.toLowerCase();
+
+      if (s === "disconnected") {
+        callEndReasonRef.current = "unreachable";
+        if (!finalizeTimerRef.current) {
+          finalizeTimerRef.current = setTimeout(() => {
+            finalizeTimerRef.current = null;
+            finalizeCall().catch((e) => console.error(e));
+          }, 1200);
+        }
+        return;
+      }
+
       if (s === "active" || s === "connected") {
+        if (finalizeTimerRef.current) {
+          clearTimeout(finalizeTimerRef.current);
+          finalizeTimerRef.current = null;
+        }
         if (!callConnectedAtRef.current) {
           const now = Date.now();
           setCallConnectedAt(now);
@@ -499,9 +609,12 @@ export function usePhoneCall(): UsePhoneCallReturn {
       callOriginRef.current = "outgoing";
       dialedNumberRef.current = normalized;
       incomingMatchedLeadRef.current = null;
+      callEndReasonRef.current = null;
       setIncomingCallNumber(null);
       const startTs = Date.now();
       setIsCalling(true);
+      setIsFollowUpOpen(false);
+      setCallStatus(null);
       setCallStartedAt(startTs);
       callStartedAtRef.current = startTs;
       setCallConnectedAt(null);
@@ -528,6 +641,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
         if (!success) {
           dialedNumberRef.current = null;
           callOriginRef.current = null;
+          setCallStatus(null);
           setIsCalling(false);
           setCallStartedAt(null);
           callStartedAtRef.current = null;
@@ -538,6 +652,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
         console.error("Failed to initiate call", err);
         dialedNumberRef.current = null;
         callOriginRef.current = null;
+        setCallStatus(null);
         setIsCalling(false);
         setCallStartedAt(null);
         callStartedAtRef.current = null;
@@ -552,11 +667,21 @@ export function usePhoneCall(): UsePhoneCallReturn {
     setCallDurationSeconds(null);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (finalizeTimerRef.current) {
+        clearTimeout(finalizeTimerRef.current);
+        finalizeTimerRef.current = null;
+      }
+    };
+  }, []);
+
   return {
     phoneNumber,
     setPhoneNumber,
     isCalling,
     isFollowUpOpen,
+    callStatus,
     callDurationSeconds,
     activeLead,
     startCall,

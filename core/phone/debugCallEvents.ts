@@ -12,40 +12,116 @@ export function useDebugCallEvents() {
 
     const emitter = new NativeEventEmitter(CallEvents);
 
-    console.log("📡 Debug listener mounted");
+    console.log("📡 Debug listener mounted (Incoming + Outgoing)");
 
-    // --- INCOMING ---
+    /* ============================================================
+     *  INCOMING EVENTS
+     * ============================================================ */
+
     const s1 = emitter.addListener("IncomingCall", (data) => {
-      console.log("📥 IncomingCall event from native:", data);
+      console.log("📥 IncomingCall:", {
+        number: data?.phoneNumber,
+        time: new Date().toISOString(),
+      });
     });
 
-    // --- ANSWERED ---
     const s2 = emitter.addListener("CallAnswered", (data) => {
-      console.log("✅ CallAnswered:", data);
+      console.log("✅ CallAnswered (Incoming):", {
+        number: data?.phoneNumber,
+        time: new Date().toISOString(),
+      });
     });
 
-    // --- ENDED ---
     const s3 = emitter.addListener("CallEnded", (data) => {
-      console.log("🛑 CallEnded:", data);
+      console.log("🛑 CallEnded (Incoming):", {
+        number: data?.phoneNumber,
+        duration: data?.durationSeconds,
+        time: new Date().toISOString(),
+      });
     });
 
-    // --- MISSED ---
     const s4 = emitter.addListener("CallMissed", (data) => {
-      console.log("❌ CallMissed:", data);
+      console.log("❌ CallMissed (Incoming):", {
+        number: data?.phoneNumber,
+        time: new Date().toISOString(),
+      });
     });
 
-    // --- ANY STATE ---
-    const s5 = emitter.addListener("CallStateChanged", (data) => {
-      console.log("🔄 CallStateChanged:", data);
+    /* ============================================================
+     *  OUTGOING EVENTS
+     * ============================================================ */
+
+    const o1 = emitter.addListener("OutgoingCall", (data) => {
+      console.log("📤 OutgoingCall:", {
+        number: data?.phoneNumber,
+        leadId: data?.leadId,
+        leadName: data?.leadName,
+        time: new Date().toISOString(),
+      });
     });
+
+    const o2 = emitter.addListener("OutgoingRinging", (data) => {
+      console.log("🔔 OutgoingRinging:", {
+        number: data?.phoneNumber,
+        time: new Date().toISOString(),
+      });
+    });
+
+    const o3 = emitter.addListener("OutgoingConnected", (data) => {
+      console.log("🤙 OutgoingConnected:", {
+        number: data?.phoneNumber,
+        startedAt: data?.startedAt,
+        time: new Date().toISOString(),
+      });
+    });
+
+    const o4 = emitter.addListener("OutgoingEnded", (data) => {
+      console.log("🛑 OutgoingEnded:", {
+        number: data?.phoneNumber,
+        duration: data?.durationSeconds,
+        time: new Date().toISOString(),
+      });
+    });
+
+    const o5 = emitter.addListener("OutgoingNotConnected", (data) => {
+      console.log("❌ OutgoingNotConnected:", {
+        number: data?.phoneNumber,
+        reason: data?.reason, // busy / unreachable / switched off
+        time: new Date().toISOString(),
+      });
+    });
+
+    /* ============================================================
+     *  RAW STATE EVENTS (Incoming + Outgoing)
+     * ============================================================ */
+
+    const s5 = emitter.addListener("CallStateChanged", (data) => {
+      console.log("🔄 CallStateChanged:", {
+        state: data?.state, // RINGING / OFFHOOK / IDLE
+        isIncoming: data?.isIncoming,
+        number: data?.phoneNumber,
+        time: new Date().toISOString(),
+      });
+    });
+
+    /* ============================================================
+     *  CLEANUP
+     * ============================================================ */
 
     return () => {
       console.log("🧹 Debug listener unmounted");
+
       s1.remove();
       s2.remove();
       s3.remove();
       s4.remove();
       s5.remove();
+
+      o1.remove();
+      o2.remove();
+      o3.remove();
+      o4.remove();
+      o5.remove();
     };
   }, []);
 }

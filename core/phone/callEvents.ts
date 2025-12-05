@@ -1,4 +1,3 @@
-// core/phone/callEvents.ts
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 
 type NativeCallEvents = {
@@ -77,11 +76,8 @@ export async function ensureDialerSetup() {
   if (Platform.OS !== "android" || !CallEvents) return;
 
   try {
-    const isDefault: boolean = await CallEvents.isDefaultDialer();
     await CallEvents.registerPhoneAccount();
-    if (!isDefault) {
-      await CallEvents.requestDefaultDialer();
-    }
+    // Only initialize listeners; do not request default dialer privileges.
     await CallEvents.initialize();
   } catch (e) {
     console.warn("Dialer setup failed", e);

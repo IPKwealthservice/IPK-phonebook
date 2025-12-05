@@ -74,6 +74,8 @@ const LEAD_STAGE_FILTER_OPTIONS: (LeadStageFilterOption | null)[] = [
   "ON_PROCESS",
 ];
 
+const QUICK_NOTES = ["Call not connected", "Not reachable / switched off"];
+
 function slugToLabel(stage?: string | null, fallback = "-") {
   if (!stage) return fallback;
   const s = stage.split("_");
@@ -114,6 +116,15 @@ export default function CallFollowUpModal({
     () => Math.max(1, Math.round(durationSeconds || 0)),
     [durationSeconds]
   );
+
+  const handleQuickNotePress = useCallback((text: string) => {
+    setNotes((prev) => {
+      if (!prev.trim()) return text;
+      const trimmed = prev.trimEnd();
+      const separator = trimmed.endsWith("\n") ? "" : "\n";
+      return `${trimmed}${separator}${text}`;
+    });
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!lead?.id) {
@@ -277,6 +288,17 @@ export default function CallFollowUpModal({
 
               <View style={styles.field}>
                 <Text style={styles.label}>Notes / Summary</Text>
+                <View style={styles.quickNotesRow}>
+                  {QUICK_NOTES.map((item) => (
+                    <Pressable
+                      key={item}
+                      onPress={() => handleQuickNotePress(item)}
+                      style={styles.quickNotePill}
+                    >
+                      <Text style={styles.quickNoteText}>{item}</Text>
+                    </Pressable>
+                  ))}
+                </View>
                 <TextInput
                   value={notes}
                   onChangeText={setNotes}
@@ -477,6 +499,26 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
     fontSize: 14,
     fontWeight: "500",
+  },
+  quickNotesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 6,
+  },
+  quickNotePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: "rgba(79,70,229,0.12)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(79,70,229,0.35)",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  quickNoteText: {
+    color: "#E0E7FF",
+    fontSize: 12,
+    fontWeight: "600",
   },
   input: {
     borderWidth: 1,
