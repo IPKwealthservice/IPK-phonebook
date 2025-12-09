@@ -1,8 +1,8 @@
 import { apolloClient } from "@/core/graphql/apolloClient";
+import { RECORD_MISSED_INCOMING_LEAD_CALL } from "@/core/graphql/calls_log";
 import {
   ADD_LEAD_INTERACTION,
-  MARK_LEAD_CALL_MISSED,
-  RECORD_LEAD_CALL,
+  LOG_LEAD_CALL,
   UPDATE_LEAD_DETAILS_AFTER_CALL,
   UPDATE_LEAD_REMARK,
   UPDATE_LEAD_STATUS,
@@ -74,7 +74,7 @@ export async function updateLeadAfterCall(params: {
     variables.stageFilter = stageFilter ?? null;
   }
 
-  const { data } = await apolloClient.mutate({
+  const { data } = await apolloClient.mutate<any>({
     mutation: UPDATE_LEAD_DETAILS_AFTER_CALL,
     variables,
   });
@@ -98,9 +98,6 @@ export async function logCallInteraction(input: {
   occurredAt?: string;
   outcome?: string;
   direction?: "INCOMING" | "OUTGOING";
-  status?: "COMPLETED" | "PENDING" | "MISSED";
-  failReason?: string | null;
-  nextFollowUpAt?: string | null;
 }): Promise<void> {
   const {
     leadId,
@@ -111,9 +108,6 @@ export async function logCallInteraction(input: {
     occurredAt,
     outcome,
     direction,
-    status,
-    failReason,
-    nextFollowUpAt,
   } = input;
   if (!leadId) {
     console.warn("Skipping lead interaction: leadId missing");
@@ -142,14 +136,13 @@ export async function logCallInteraction(input: {
     phoneNumber: sanitizedPhone,
     durationSec: duration,
     direction: (direction as any) ?? ("OUTGOING" as const),
-    status: (status as any) ?? ("COMPLETED" as const),
-    failReason: failReason ?? undefined,
-    nextFollowUpAt: nextFollowUpAt ?? (nextAction?.trim() ? undefined : null),
     occurredAt: occurredAt ?? new Date().toISOString(),
+    text,
+    outcome: outcome as any,
   };
 
   await apolloClient.mutate({
-    mutation: RECORD_LEAD_CALL,
+    mutation: LOG_LEAD_CALL,
     variables: { input: logPayload },
   });
 
@@ -172,7 +165,7 @@ export async function updateLeadStatus(params: {
 }) {
   const { leadId, status } = params;
 
-  const { data } = await apolloClient.mutate({
+  const { data } = await apolloClient.mutate<any>({
     mutation: UPDATE_LEAD_STATUS,
     variables: {
       leadId,
@@ -187,47 +180,45 @@ export async function recordLeadCallLog(input: {
   leadId: string;
   phoneNumber: string;
   direction: "INCOMING" | "OUTGOING";
-  status: "COMPLETED" | "PENDING" | "MISSED";
   durationSec?: number | null;
-  failReason?: string | null;
-  nextFollowUpAt?: string | null;
   occurredAt?: string | null;
 }) {
   const payload: Record<string, unknown> = {
     leadId: input.leadId,
     phoneNumber: input.phoneNumber,
     direction: input.direction,
-    status: input.status,
+    durationSec: Math.max(1, Math.round(input.durationSec ?? 1)),
   };
 
-  if (input.durationSec !== undefined) payload.durationSec = input.durationSec;
-  if (input.failReason !== undefined) payload.failReason = input.failReason;
-  if (input.nextFollowUpAt !== undefined) payload.nextFollowUpAt = input.nextFollowUpAt;
   if (input.occurredAt !== undefined) payload.occurredAt = input.occurredAt;
+  payload.text = "Call log";
 
-  const { data } = await apolloClient.mutate({
-    mutation: RECORD_LEAD_CALL,
+  const { data } = await apolloClient.mutate<any>({
+    mutation: LOG_LEAD_CALL,
     variables: { input: payload },
+  });
+
+  return data?.logLeadCall;
+}
+
+export async function recordMissedIncomingLeadCall(input: {
+  leadId: string;
+  phoneNumber: string;
+  nextFollowUpAt?: string | null;
+}) {
+  const variables: Record<string, unknown> = {
+    leadId: input.leadId,
+    phoneNumber: input.phoneNumber,
+  };
+
+  if (input.nextFollowUpAt !== undefined) {
+    variables.nextFollowUpAt = input.nextFollowUpAt ?? null;
+  }
+
+  const { data } = await apolloClient.mutate<any>({
+    mutation: RECORD_MISSED_INCOMING_LEAD_CALL,
+    variables,
   });
 
   return data?.recordLeadCall;
-}
-
-export async function markLeadCallAsMissed(input: {
-  callLogId: string;
-  failReason?: string | null;
-  nextFollowUpAt?: string | null;
-}) {
-  const payload: Record<string, unknown> = {
-    callLogId: input.callLogId,
-  };
-  if (input.failReason !== undefined) payload.failReason = input.failReason;
-  if (input.nextFollowUpAt !== undefined) payload.nextFollowUpAt = input.nextFollowUpAt;
-
-  const { data } = await apolloClient.mutate({
-    mutation: MARK_LEAD_CALL_MISSED,
-    variables: { input: payload },
-  });
-
-  return data?.markLeadCallMissed;
 }

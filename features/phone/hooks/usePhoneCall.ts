@@ -20,7 +20,10 @@ import {
   subscribeCallState,
   subscribeIncomingCall,
 } from "@/core/phone/callEvents";
-import { recordLeadCallLog } from "@/features/leads/services/interactions.service";
+import {
+  recordLeadCallLog,
+  recordMissedIncomingLeadCall,
+} from "@/features/leads/services/interactions.service";
 
 export type ActiveLead = { id: string; name?: string; phone?: string } | null;
 type CallStatus = "connected" | "missed" | "no-answer" | "unreachable" | null;
@@ -73,8 +76,10 @@ const phoneNumbersMatch = (left?: string | null, right?: string | null) => {
 type LeadDirectoryEntry = {
   id: string;
   name?: string | null;
-  phone?: string | null;
-  normalizedDigits: string;
+  primaryPhone?: string | null;
+  numbers: string[];
+  normalizedNumbers: string[];
+  numberLabels?: Record<string, string | undefined>;
 };
 
 const findLeadMatch = (
@@ -82,15 +87,19 @@ const findLeadMatch = (
   directory: LeadDirectoryEntry[]
 ): ActiveLead => {
   if (!phone) return null;
-  const match = directory.find((entry) =>
-    phoneNumbersMatch(phone, entry.phone)
-  );
-  if (!match) return null;
-  return {
-    id: match.id,
-    name: match.name ?? undefined,
-    phone: match.phone ?? undefined,
-  };
+  for (const entry of directory) {
+    const matchedNumber =
+      entry.numbers.find((num) => phoneNumbersMatch(phone, num)) ??
+      entry.normalizedNumbers.find((num) => phoneNumbersMatch(phone, num));
+    if (matchedNumber) {
+      return {
+        id: entry.id,
+        name: entry.name ?? undefined,
+        phone: matchedNumber ?? entry.primaryPhone ?? undefined,
+      };
+    }
+  }
+  return null;
 };
 
 const fetchLeadDirectory = async (): Promise<LeadDirectoryEntry[]> => {
@@ -108,13 +117,72 @@ const fetchLeadDirectory = async (): Promise<LeadDirectoryEntry[]> => {
     });
     const items = (data as any)?.myAssignedLeads?.items ?? [];
     return items
-      .filter((item: any) => item?.id && item?.phone)
-      .map((item: any) => ({
-        id: String(item.id),
-        name: item?.name,
-        phone: item?.phone,
-        normalizedDigits: normalizeDigits(item?.phone),
-      }));
+      .filter((item: any) => {
+        const phoneCandidates: string[] = [];
+        if (item?.phone) phoneCandidates.push(item.phone);
+        if (item?.phoneNormalized) phoneCandidates.push(item.phoneNormalized);
+        if (Array.isArray(item?.phones)) {
+          for (const p of item.phones) {
+            if (p?.number) phoneCandidates.push(p.number);
+            if (p?.normalized) phoneCandidates.push(p.normalized);
+          }
+        }
+        return item?.id && phoneCandidates.length > 0;
+      })
+      .map((item: any) => {
+        const numbersSet = new Set<string>();
+        const numberLabels: Record<string, string> = {};
+        if (item?.phone) {
+          numbersSet.add(String(item.phone));
+          numberLabels[String(item.phone)] = "Lead phone";
+        }
+        if (item?.phoneNormalized) {
+          numbersSet.add(String(item.phoneNormalized));
+          numberLabels[String(item.phoneNormalized)] = "Lead phone (normalized)";
+        }
+        if (Array.isArray(item?.phones)) {
+          for (const p of item.phones) {
+            if (p?.number) {
+              numbersSet.add(String(p.number));
+              numberLabels[String(p.number)] = p?.label
+                ? p.label
+                : p?.isPrimary || p?.primary
+                ? "Primary"
+                : "Other";
+            }
+            if (p?.normalized) {
+              numbersSet.add(String(p.normalized));
+              numberLabels[String(p.normalized)] = p?.label
+                ? p.label
+                : p?.isPrimary || p?.primary
+                ? "Primary"
+                : "Other";
+            }
+          }
+        }
+        const numbers = Array.from(numbersSet);
+        const normalizedNumbers = numbers
+          .map((n) => normalizeDigits(n))
+          .filter(Boolean);
+        const primaryPhone =
+          item?.phone ||
+          (Array.isArray(item?.phones)
+            ? item.phones.find((p: any) => p?.isPrimary || p?.primary)?.number ||
+              item.phones[0]?.number ||
+              item.phones[0]?.normalized
+            : null) ||
+          numbers[0] ||
+          null;
+
+        return {
+          id: String(item.id),
+          name: item?.name,
+          primaryPhone,
+          numbers,
+          normalizedNumbers,
+          numberLabels,
+        };
+      });
   } catch (error) {
     console.warn("Failed to fetch lead directory for call matching", error);
     return [];
@@ -264,6 +332,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const finalizingRef = useRef<boolean>(false);
   const callEndReasonRef = useRef<"unreachable" | null>(null);
   const finalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoggedCallRef = useRef<boolean>(false);
 
   useEffect(() => {
     isCallingRef.current = isCalling;
@@ -329,6 +398,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const finalizeCall = useCallback(async () => {
     if (finalizingRef.current) return;
     finalizingRef.current = true;
+    hasLoggedCallRef.current = false;
 
     if (finalizeTimerRef.current) {
       clearTimeout(finalizeTimerRef.current);
@@ -373,6 +443,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
         dialedNumberRef.current = null;
         callOriginRef.current = null;
         incomingMatchedLeadRef.current = null;
+        hasLoggedCallRef.current = false;
         return;
       }
 
@@ -443,19 +514,29 @@ export function usePhoneCall(): UsePhoneCallReturn {
           incomingCallNumberRef.current ??
           null;
 
-        if (leadIdForLog && phoneForLog) {
+        if (leadIdForLog && phoneForLog && !hasLoggedCallRef.current) {
           try {
-            await recordLeadCallLog({
-              leadId: leadIdForLog,
-              phoneNumber: phoneForLog,
-              direction: isIncoming ? "INCOMING" : "OUTGOING",
-              status: "MISSED",
-              failReason:
-                callEndReasonRef.current === "unreachable"
-                  ? "BUSY"
-                  : "NO_ANSWER",
-              occurredAt: new Date().toISOString(),
-            });
+            if (isIncoming) {
+              await recordMissedIncomingLeadCall({
+                leadId: leadIdForLog,
+                phoneNumber: phoneForLog,
+                nextFollowUpAt: new Date().toISOString(),
+              });
+              hasLoggedCallRef.current = true;
+              apolloClient
+                .refetchQueries({ include: ["CallsTab"] })
+                .catch((refetchErr) =>
+                  console.warn("Failed to refresh calls tab", refetchErr)
+                );
+            } else {
+              await recordLeadCallLog({
+                leadId: leadIdForLog,
+                phoneNumber: phoneForLog,
+                direction: "OUTGOING",
+                occurredAt: new Date().toISOString(),
+              });
+              hasLoggedCallRef.current = true;
+            }
           } catch (err) {
             console.warn("Failed to record missed call", err);
           }
@@ -506,6 +587,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
       incomingMatchedLeadRef.current = null;
       callOriginRef.current = null;
       callEndReasonRef.current = null;
+      hasLoggedCallRef.current = false;
       finalizingRef.current = false;
     }
   }, []);
@@ -590,9 +672,91 @@ export function usePhoneCall(): UsePhoneCallReturn {
     };
   }, [finalizeCall]);
 
+  const selectNumberForCall = useCallback(
+    async (choices: { number: string; label?: string }[]) => {
+      if (!choices.length) return null;
+      if (choices.length === 1) return choices[0];
+
+      return await new Promise<{ number: string; label?: string } | null>(
+        (resolve) => {
+          Alert.alert(
+            "Choose number",
+            "Select a phone number to call",
+            [
+              ...choices.map((choice) => ({
+                text: choice.label
+                  ? `${choice.label} • ${choice.number}`
+                  : choice.number,
+                onPress: () => resolve(choice),
+              })),
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => resolve(null),
+              },
+            ],
+            { cancelable: true }
+          );
+        }
+      );
+    },
+    []
+  );
+
+  const buildNumberChoices = useCallback(
+    (opts?: { leadId?: string; phone?: string }) => {
+      const choices: { number: string; label?: string }[] = [];
+      const addChoice = (num?: string | null, label?: string) => {
+        const trimmed = (num ?? "").trim();
+        if (!trimmed) return;
+        if (choices.some((c) => phoneNumbersMatch(c.number, trimmed))) return;
+        choices.push({ number: trimmed, label });
+      };
+
+      const entryById = opts?.leadId
+        ? leadDirectoryRef.current.find(
+            (entry) => entry.id === String(opts.leadId)
+          )
+        : null;
+
+      const targetPhone = opts?.phone ?? phoneNumber;
+      const entryByPhone =
+        !entryById && targetPhone
+          ? leadDirectoryRef.current.find((entry) =>
+              entry.numbers.some((n) => phoneNumbersMatch(n, targetPhone))
+            )
+          : null;
+
+      const entry = entryById ?? entryByPhone;
+
+      if (opts?.phone) addChoice(opts.phone, "Lead phone");
+      if (entry) {
+        entry.numbers.forEach((num) => {
+          const label =
+            entry.numberLabels?.[num] ??
+            (num === entry.primaryPhone ? "Primary" : "Other");
+          addChoice(num, label);
+        });
+      }
+
+      if (!choices.length && phoneNumber) {
+        addChoice(phoneNumber, "Entered number");
+      }
+
+      return choices;
+    },
+    [phoneNumber]
+  );
+
   const startCall = useCallback<UsePhoneCallReturn["startCall"]>(
     async (opts) => {
-      const sourceNumber = opts?.phone ?? phoneNumber;
+      const choices = buildNumberChoices(opts);
+      const selected = await selectNumberForCall(choices);
+      if (!selected) {
+        return;
+      }
+
+      const sourceNumber = selected.number;
       const normalized = normalizePhone(sourceNumber);
 
       if (!normalized) {
@@ -626,7 +790,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
         setActiveLead({
           id: String(opts.leadId),
           name: opts.leadName,
-          phone: opts.phone ?? sourceNumber,
+          phone: sourceNumber,
         });
       } else {
         setActiveLead(null);
@@ -660,7 +824,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
         Alert.alert("Dialer", "Failed to place the call.");
       }
     },
-    [phoneNumber, startCallRecord]
+    [buildNumberChoices, selectNumberForCall, startCallRecord]
   );
 
   const closeFollowUp = useCallback(() => {

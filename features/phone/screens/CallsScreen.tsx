@@ -42,15 +42,34 @@ type MissedCallLog = {
   createdByName?: string | null;
 };
 
-const isSameDay = (iso?: string | null) => {
+const isDueTodayOrPast = (iso?: string | null) => {
   if (!iso) return false;
   const date = new Date(iso);
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
+  if (Number.isNaN(date.getTime())) return false;
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  return date.getTime() <= endOfToday.getTime();
+};
+
+const formatOverdue = (minutes: number) => {
+  const mins = Math.max(1, minutes);
+  const minutesInDay = 60 * 24;
+  const minutesInMonth = minutesInDay * 30;
+  const months = Math.floor(mins / minutesInMonth);
+  const days = Math.floor((mins % minutesInMonth) / minutesInDay);
+  if (months > 0) {
+    return `Overdue by ${months}mo${days > 0 ? ` ${days}d` : ""}`;
+  }
+  if (days > 0) {
+    const hours = Math.floor((mins % minutesInDay) / 60);
+    return `Overdue by ${days}d${hours > 0 ? ` ${hours}h` : ""}`;
+  }
+  if (mins >= 60) {
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `Overdue by ${hours}h${remMins > 0 ? ` ${remMins}m` : ""}`;
+  }
+  return `Overdue by ${mins}m`;
 };
 
 const formatDueLabel = (iso?: string | null) => {
@@ -67,7 +86,7 @@ const formatDueLabel = (iso?: string | null) => {
   }
   if (diffMs < 0) {
     const mins = Math.max(1, Math.round(Math.abs(diffMs) / 60000));
-    return `Overdue by ${mins}m · ${timeLabel}`;
+    return `${formatOverdue(mins)} · ${timeLabel}`;
   }
   const mins = Math.round(diffMs / 60000);
   return `Due in ${mins}m · ${timeLabel}`;
@@ -124,7 +143,7 @@ export function CallsScreen() {
   const pendingLeads: FollowUpLead[] = useMemo(() => {
     const items: FollowUpLead[] = (leadsData as any)?.leads?.items ?? [];
     return items
-      .filter((lead) => isSameDay(lead?.nextActionDueAt))
+      .filter((lead) => isDueTodayOrPast(lead?.nextActionDueAt))
       .sort((a, b) => {
         const left = a?.nextActionDueAt
           ? new Date(a.nextActionDueAt).getTime()
@@ -150,7 +169,7 @@ export function CallsScreen() {
       {
         key: "pending",
         label: "Pending",
-        description: "Follow up on today's scheduled calls.",
+        description: "Follow up on today's and overdue calls.",
         tone: "primary",
         count: pendingLeads.length,
       },
@@ -424,9 +443,9 @@ export function CallsScreen() {
 
           {activeBucket === "pending" && pendingLeads.length === 0 && (
             <Card style={{ alignItems: "center" }}>
-              <Text weight="semibold">No pending calls for today</Text>
+              <Text weight="semibold">No pending or overdue calls</Text>
               <Text tone="muted" size="sm" style={{ textAlign: "center" }}>
-                You are all caught up on today's follow-ups.
+                You are all caught up on pending and expired follow-ups.
               </Text>
             </Card>
           )}

@@ -223,6 +223,11 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                   nestedScrollEnabled
                   contentContainerStyle={styles.scrollContent}
                   showsVerticalScrollIndicator
+                  keyboardShouldPersistTaps="handled"
+                  scrollEventThrottle={16}
+                  decelerationRate="normal"
+                  overScrollMode="always"
+                  contentInsetAdjustmentBehavior="automatic"
                 >
                   {/* LOADING */}
                   {loading ? (
@@ -517,6 +522,10 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                             style={{ maxHeight: 180 }}
                             nestedScrollEnabled
                             showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            scrollEventThrottle={16}
+                            decelerationRate="normal"
+                            overScrollMode="always"
                           >
                             {remarks.map((r, idx) => {
                               const remarkText =
@@ -581,6 +590,10 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                             style={{ maxHeight: 270 }}
                             nestedScrollEnabled
                             showsVerticalScrollIndicator
+                            keyboardShouldPersistTaps="handled"
+                            scrollEventThrottle={16}
+                            decelerationRate="normal"
+                            overScrollMode="always"
                           >
                             {timeline.map((event: any) => (
                               <View

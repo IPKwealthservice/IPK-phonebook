@@ -151,6 +151,13 @@ export const MY_ASSIGNED_LEADS = gql`
         leadCode
         name
         phone
+        phoneNormalized
+        phones {
+          number
+          normalized
+          isPrimary
+          label
+        }
         leadSource
         clientStage
         assignedRM
@@ -239,34 +246,7 @@ export const LOG_LEAD_CALL = gql`
 `;
 
 // Record a call log (completed, pending, or missed) against a lead.
-export const RECORD_LEAD_CALL = gql`
-  mutation RecordLeadCall($input: RecordLeadCallInput!) {
-    recordLeadCall(input: $input) {
-      id
-      leadId
-      phoneNumber
-      direction
-      status
-      durationSec
-      failReason
-      occurredAt
-      nextFollowUpAt
-      createdByName
-    }
-  }
-`;
-
-// Mark an existing call log as missed and optionally capture follow-up.
-export const MARK_LEAD_CALL_MISSED = gql`
-  mutation MarkLeadCallMissed($input: MarkLeadCallMissedInput!) {
-    markLeadCallMissed(input: $input) {
-      id
-      status
-      failReason
-      nextFollowUpAt
-    }
-  }
-`;
+// Legacy alias removed; use LOG_LEAD_CALL above for creating call logs.
 
 export const UPDATE_LEAD_STATUS = gql`
   mutation UpdateLeadStatus($leadId: ID!, $status: LeadStatus!) {
