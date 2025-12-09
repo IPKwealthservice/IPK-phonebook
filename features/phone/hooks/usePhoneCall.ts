@@ -470,10 +470,11 @@ export function usePhoneCall(): UsePhoneCallReturn {
       setIncomingCallNumber(null);
       callEndReasonRef.current = null;
 
-      const shouldShowFollowUp = isOutgoing
-        ? hadDialedNumber
-        : wasConnected && (isIncoming ? !!resolvedLead : hadDialedNumber);
+      // Popup rule:
+      // - Outgoing: open only when connected
+      // - Incoming: open only when connected (missed -> no popup)
       const followUpLead = resolvedLead ?? activeLeadRef.current;
+      const shouldShowFollowUp = wasConnected && !!followUpLead;
 
       if (shouldShowFollowUp && followUpLead) {
         setIsFollowUpOpen(true);
