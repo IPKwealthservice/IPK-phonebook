@@ -1,5 +1,5 @@
 import * as Linking from "expo-linking";
-import { Alert } from "react-native";
+import { Alert, NativeModules, Platform } from "react-native";
 
 /**
  * Normalize phone number by removing spaces, dashes, and parentheses
@@ -30,6 +30,16 @@ export const placeDirectCall = async (phoneNumber: string): Promise<boolean> => 
   }
 
   try {
+    // Prefer native direct call on Android to immediately start the call
+    if (Platform.OS === "android" && (NativeModules as any)?.CallEvents?.placeCall) {
+      try {
+        await (NativeModules as any).CallEvents.placeCall(normalized);
+        return true;
+      } catch (nativeErr: any) {
+        console.warn("Native direct call failed, falling back", nativeErr?.message ?? nativeErr);
+      }
+    }
+
     const url = `tel:${normalized}`;
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) {

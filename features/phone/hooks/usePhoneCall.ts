@@ -504,25 +504,31 @@ export function usePhoneCall(): UsePhoneCallReturn {
         ? "missed"
         : "no-answer";
 
-      if (!wasConnected) {
-        const leadIdForLog =
-          resolvedLead?.id ?? activeLeadRef.current?.id ?? null;
-        const phoneForLog =
-          targetNumber ??
-          resolvedLead?.phone ??
-          activeLeadRef.current?.phone ??
-          incomingCallNumberRef.current ??
-          null;
+      const leadIdForLog =
+        resolvedLead?.id ?? activeLeadRef.current?.id ?? null;
+      const phoneForLog =
+        targetNumber ??
+        resolvedLead?.phone ??
+        activeLeadRef.current?.phone ??
+        incomingCallNumberRef.current ??
+        null;
 
-        if (leadIdForLog && phoneForLog && !hasLoggedCallRef.current) {
-          try {
+      if (leadIdForLog && phoneForLog && !hasLoggedCallRef.current) {
+        const direction: "INCOMING" | "OUTGOING" = isIncoming
+          ? "INCOMING"
+          : "OUTGOING";
+        const occurredAt = new Date(
+          callConnectedAtRef.current ?? callStartedAtRef.current ?? Date.now()
+        ).toISOString();
+
+        try {
+          if (!wasConnected) {
             if (isIncoming) {
               await recordMissedIncomingLeadCall({
                 leadId: leadIdForLog,
                 phoneNumber: phoneForLog,
                 nextFollowUpAt: new Date().toISOString(),
               });
-              hasLoggedCallRef.current = true;
               apolloClient
                 .refetchQueries({ include: ["CallsTab"] })
                 .catch((refetchErr) =>
@@ -532,14 +538,22 @@ export function usePhoneCall(): UsePhoneCallReturn {
               await recordLeadCallLog({
                 leadId: leadIdForLog,
                 phoneNumber: phoneForLog,
-                direction: "OUTGOING",
-                occurredAt: new Date().toISOString(),
+                direction,
+                occurredAt,
               });
-              hasLoggedCallRef.current = true;
             }
-          } catch (err) {
-            console.warn("Failed to record missed call", err);
+          } else {
+            await recordLeadCallLog({
+              leadId: leadIdForLog,
+              phoneNumber: phoneForLog,
+              direction,
+              durationSec: durationSeconds ?? 0,
+              occurredAt,
+            });
           }
+          hasLoggedCallRef.current = true;
+        } catch (err) {
+          console.warn("Failed to record call log", err);
         }
       }
 

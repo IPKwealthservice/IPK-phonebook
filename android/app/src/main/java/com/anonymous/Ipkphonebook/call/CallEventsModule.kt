@@ -10,6 +10,8 @@ import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
 import android.os.Handler
 import android.os.Looper
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -37,6 +39,21 @@ class CallEventsModule(private val context: ReactApplicationContext) :
   private val mainHandler = Handler(Looper.getMainLooper())
 
   override fun getName(): String = NAME
+
+  /**
+   * React Native 0.71+ requires native event emitter modules to implement
+   * addListener/removeListeners, even if we don't use them on the native side.
+   * These are no-ops but silence the yellow-box warnings.
+   */
+  @ReactMethod
+  fun addListener(eventName: String?) {
+    // Intentionally empty
+  }
+
+  @ReactMethod
+  fun removeListeners(count: Int) {
+    // Intentionally empty
+  }
 
   @ReactMethod
   fun initialize(promise: Promise? = null) {
@@ -98,6 +115,36 @@ class CallEventsModule(private val context: ReactApplicationContext) :
   fun registerPhoneAccount(promise: Promise) {
     // ConnectionService wiring is out of scope; resolve to keep JS flow happy.
     promise.resolve(true)
+  }
+
+  @ReactMethod
+  fun placeCall(number: String?, promise: Promise) {
+    val rawNumber = normalizeNumber(number)
+    if (rawNumber.isEmpty()) {
+      promise.reject("call_error", "Invalid phone number")
+      return
+    }
+
+    val hasPermission = ContextCompat.checkSelfPermission(
+      context,
+      android.Manifest.permission.CALL_PHONE
+    ) == PackageManager.PERMISSION_GRANTED
+
+    if (!hasPermission) {
+      promise.reject("call_permission", "CALL_PHONE permission not granted")
+      return
+    }
+
+    try {
+      val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$rawNumber"))
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+      promise.resolve(true)
+    } catch (e: SecurityException) {
+      promise.reject("call_permission", e)
+    } catch (e: Exception) {
+      promise.reject("call_error", e)
+    }
   }
 
   @ReactMethod
@@ -210,6 +257,9 @@ class CallEventsModule(private val context: ReactApplicationContext) :
       TelephonyManager.CALL_STATE_OFFHOOK -> {
         if (callStartTime == 0L) {
           callStartTime = System.currentTimeMillis()
+        }
+        if (!normalized.isNullOrEmpty()) {
+          lastNumber = normalized
         }
         sendEvent("CallAnswered", mapOf("phoneNumber" to (lastNumber ?: normalized)))
         sendEvent("CallStateChanged", mapOf("state" to "ACTIVE", "phoneNumber" to (lastNumber ?: normalized)))
