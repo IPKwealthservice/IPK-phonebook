@@ -6,6 +6,7 @@
  *    ✓ Scrollable remarks
  *    ✓ Scrollable timeline
  *    ✓ UI improvements
+ *    ✓ Memoized styles (perf tweak)
  * ------------------------------------------------------------------ */
 
 import { useQuery } from "@apollo/client/react";
@@ -52,7 +53,8 @@ type RemarkItem =
 
 export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
   const theme = useTheme();
-  const styles = makeStyles(theme);
+  // 👇 Memoize styles so they are not recreated on every render
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const sheetAnim = useRef(new Animated.Value(1)).current;
   const fabAnim = useRef(new Animated.Value(1)).current;
@@ -184,16 +186,16 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
         onRequestClose={onClose}
         statusBarTranslucent
       >
-        <Pressable style={styles.overlay} onPress={onClose}>
-          <Pressable
-            style={styles.sheetContainer}
-            onPress={(e) => e.stopPropagation()}
-          >
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          <View style={styles.sheetContainer}>
             <View style={styles.sheet}>
               <SafeAreaView edges={["top"]} style={styles.safeArea}>
                 {/* Header */}
                 <View style={styles.handleContainer}>
-                  <View style={styles.handle} />
+                  <Pressable onPress={onClose} style={styles.handlePressable}>
+                    <View style={styles.handle} />
+                  </Pressable>
                 </View>
 
                 <View style={styles.header}>
@@ -217,19 +219,17 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                   </Pressable>
                 </View>
 
-                {/* MAIN SCROLL */}
                 <ScrollView
                   style={styles.scrollView}
-                  nestedScrollEnabled
                   contentContainerStyle={styles.scrollContent}
-                  showsVerticalScrollIndicator
+                  showsVerticalScrollIndicator={true}
                   keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
                   scrollEventThrottle={16}
-                  decelerationRate="normal"
-                  overScrollMode="always"
-                  contentInsetAdjustmentBehavior="automatic"
+                  bounces={true}
+                  alwaysBounceVertical={false}
+                  removeClippedSubviews={true}
                 >
-                  {/* LOADING */}
                   {loading ? (
                     renderSkeleton(theme)
                   ) : error ? (
@@ -511,22 +511,14 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                         </Card>
                       )}
 
-                      {/* F. REMARKS — scrollable */}
+                      {/* F. REMARKS */}
                       {remarks.length > 0 && (
                         <Card style={[styles.card, styles.sectionCard]}>
                           <Text weight="semibold" style={styles.sectionTitle}>
                             Remarks
                           </Text>
 
-                          <ScrollView
-                            style={{ maxHeight: 180 }}
-                            nestedScrollEnabled
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                            scrollEventThrottle={16}
-                            decelerationRate="normal"
-                            overScrollMode="always"
-                          >
+                          <View style={styles.remarksContainer}>
                             {remarks.map((r, idx) => {
                               const remarkText =
                                 typeof r === "string" ? r : r?.text;
@@ -552,7 +544,7 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                                 </View>
                               );
                             })}
-                          </ScrollView>
+                          </View>
                         </Card>
                       )}
 
@@ -579,22 +571,14 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                         </Card>
                       )}
 
-                      {/* H. EVENT TIMELINE — scrollable */}
+                      {/* H. EVENT TIMELINE */}
                       {timeline.length > 0 && (
                         <Card style={[styles.card, styles.sectionCard]}>
                           <Text weight="semibold" style={styles.sectionTitle}>
                             Event Timeline
                           </Text>
 
-                          <ScrollView
-                            style={{ maxHeight: 270 }}
-                            nestedScrollEnabled
-                            showsVerticalScrollIndicator
-                            keyboardShouldPersistTaps="handled"
-                            scrollEventThrottle={16}
-                            decelerationRate="normal"
-                            overScrollMode="always"
-                          >
+                          <View style={styles.timelineContainer}>
                             {timeline.map((event: any) => (
                               <View
                                 key={event.id}
@@ -602,8 +586,8 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                               >
                                 <View style={styles.timelineDot} />
 
-                                <View style={{ flex: 1 }}>
-                                  <Text weight="semibold">
+                                <View style={styles.timelineContent}>
+                                  <Text weight="semibold" numberOfLines={2}>
                                     {slugToLabel(event.type)}
                                   </Text>
 
@@ -612,6 +596,7 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                                       size="sm"
                                       tone="muted"
                                       style={{ marginTop: 2 }}
+                                      numberOfLines={3}
                                     >
                                       {event.text}
                                     </Text>
@@ -621,13 +606,14 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                                     size="sm"
                                     tone="muted"
                                     style={{ marginTop: 2 }}
+                                    numberOfLines={1}
                                   >
                                     {formatDateTime(event.occurredAt)}
                                   </Text>
                                 </View>
                               </View>
                             ))}
-                          </ScrollView>
+                          </View>
                         </Card>
                       )}
                     </>
@@ -640,7 +626,9 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                 <SafeAreaView edges={["bottom"]} style={styles.fabContainer}>
                   <View style={styles.fabCluster}>
                     <FabAction
-                      icon={<MaterialIcons name="phone" size={18} color="#fff" />}
+                      icon={
+                        <MaterialIcons name="phone" size={18} color="#fff" />
+                      }
                       label="Call"
                       onPress={handleCall}
                       background={theme.colors.success}
@@ -673,8 +661,8 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                 </SafeAreaView>
               )}
             </View>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {/* ===================== LOG INTERACTION MODAL ===================== */}
@@ -832,7 +820,7 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
 
     sheetContainer: {
       width: "100%",
-      alignSelf: "flex-end",
+      maxHeight: "96%",
     },
 
     sheet: {
@@ -840,16 +828,17 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       borderTopLeftRadius: 22,
       borderTopRightRadius: 22,
       overflow: "hidden",
+      height: "100%",
       maxHeight: "96%",
     },
 
     safeArea: {
       backgroundColor: theme.colors.background,
-      flexGrow: 1,
+      flex: 1,
     },
 
     scrollView: {
-      flexGrow: 0,
+      flex: 1,
     },
 
     scrollContent: {
@@ -872,6 +861,14 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
     handleContainer: {
       alignItems: "center",
       paddingTop: 6,
+      paddingBottom: 4,
+    },
+
+    handlePressable: {
+      paddingVertical: 8,
+      paddingHorizontal: 20,
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     handle: {
@@ -965,10 +962,6 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       width: "48%",
     },
 
-    valueText: {
-      color: theme.colors.text,
-    },
-
     leadSource: {
       backgroundColor: "rgba(70,95,255,0.12)",
       paddingVertical: 6,
@@ -993,12 +986,6 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       justifyContent: "center",
     },
 
-    rowActions: {
-      flexDirection: "row",
-      gap: 6,
-      alignItems: "center",
-    },
-
     occupationRow: {
       paddingVertical: 6,
       borderBottomWidth: 1,
@@ -1013,6 +1000,10 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       borderColor: theme.colors.border,
     },
 
+    remarksContainer: {
+      maxHeight: 300,
+    },
+
     remarkRow: {
       paddingVertical: 6,
       borderBottomWidth: 1,
@@ -1024,11 +1015,24 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       paddingVertical: 3,
     },
 
+    timelineContainer: {
+      maxHeight: 400,
+      overflow: "hidden",
+    },
+
     timelineRow: {
       flexDirection: "row",
       gap: 12,
-      paddingVertical: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 4,
       alignItems: "flex-start",
+      minHeight: 50,
+    },
+
+    timelineContent: {
+      flex: 1,
+      flexShrink: 1,
+      minWidth: 0,
     },
 
     timelineDot: {
@@ -1037,6 +1041,7 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       borderRadius: 5,
       marginTop: 6,
       backgroundColor: theme.colors.primary,
+      flexShrink: 0,
     },
 
     fabContainer: {
@@ -1050,16 +1055,6 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       bottom: 12,
       gap: 6,
       alignItems: "flex-end",
-    },
-
-    fabAction: {
-      borderRadius: 12,
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      elevation: 4,
     },
 
     modalOverlay: {

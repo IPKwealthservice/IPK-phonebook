@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import android.app.ActivityManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -147,6 +148,21 @@ class CallEventsModule(private val context: ReactApplicationContext) :
     }
   }
 
+  private fun bringAppToFront() {
+    try {
+      val pm = context.packageManager
+      val launchIntent = pm.getLaunchIntentForPackage(context.packageName) ?: return
+      launchIntent.addFlags(
+        Intent.FLAG_ACTIVITY_NEW_TASK or
+          Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+          Intent.FLAG_ACTIVITY_SINGLE_TOP
+      )
+      context.startActivity(launchIntent)
+    } catch (_: Exception) {
+      // best-effort; ignore failures
+    }
+  }
+
   @ReactMethod
   fun getLastCallForNumber(number: String, sinceMs: Double, promise: Promise) {
     val normalizedTarget = normalizeDigits(number)
@@ -156,11 +172,13 @@ class CallEventsModule(private val context: ReactApplicationContext) :
     }
 
     val resolver = context.contentResolver
-    val uri: Uri = CallLog.Calls.CONTENT_URI
+    val uri: Uri = CallLog.Calls.CONTENT_URI.buildUpon()
+      .appendQueryParameter("limit", "1")
+      .build()
 
     val selection = "${CallLog.Calls.NUMBER} LIKE ? AND ${CallLog.Calls.DATE} >= ?"
     val args = arrayOf("%$normalizedTarget%", sinceMs.toLong().toString())
-    val sortOrder = "${CallLog.Calls.DATE} DESC LIMIT 1"
+    val sortOrder = "${CallLog.Calls.DATE} DESC"
 
     var cursor: Cursor? = null
     try {
@@ -196,19 +214,21 @@ class CallEventsModule(private val context: ReactApplicationContext) :
   @ReactMethod
   fun getRecentCalls(limit: Int, promise: Promise) {
     val resolver = context.contentResolver
-    val uri: Uri = CallLog.Calls.CONTENT_URI
+    val safeLimit = when {
+      limit <= 0 -> 15
+      limit > 100 -> 100
+      else -> limit
+    }
+    val uri: Uri = CallLog.Calls.CONTENT_URI.buildUpon()
+      .appendQueryParameter("limit", safeLimit.toString())
+      .build()
     val projection = arrayOf(
       CallLog.Calls.NUMBER,
       CallLog.Calls.DATE,
       CallLog.Calls.DURATION,
       CallLog.Calls.TYPE
     )
-    val safeLimit = when {
-      limit <= 0 -> 15
-      limit > 100 -> 100
-      else -> limit
-    }
-    val sortOrder = "${CallLog.Calls.DATE} DESC LIMIT $safeLimit"
+    val sortOrder = "${CallLog.Calls.DATE} DESC"
     var cursor: Cursor? = null
 
     try {
@@ -283,6 +303,10 @@ class CallEventsModule(private val context: ReactApplicationContext) :
         }
 
         sendEvent("CallStateChanged", mapOf("state" to "IDLE", "phoneNumber" to (lastNumber ?: normalized)))
+        // Bring app to front after a call ends (incoming or outgoing) if we have a number.
+        if (!normalized.isNullOrEmpty() || !lastNumber.isNullOrEmpty()) {
+          mainHandler.postDelayed({ bringAppToFront() }, 300)
+        }
         callStartTime = 0L
         lastNumber = null
       }
