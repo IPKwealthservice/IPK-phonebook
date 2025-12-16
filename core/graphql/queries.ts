@@ -45,6 +45,7 @@ export const LEADS_BY_STAGE_QUERY = gql`
         name
         phone
         clientStage
+        stageFilter
         leadSource
         assignedRM
         assignedRmId
@@ -64,6 +65,7 @@ export const LEADS_QUERY = gql`
         phone
         leadSource
         clientStage
+        stageFilter
         status
         assignedRM
         assignedRmId
@@ -160,6 +162,7 @@ export const MY_ASSIGNED_LEADS = gql`
         }
         leadSource
         clientStage
+        stageFilter
         assignedRM
         assignedRmId
         nextActionDueAt
@@ -343,6 +346,7 @@ export const HOME_LEADS_QUERY = gql`
         phone
         leadSource
         clientStage
+        stageFilter
         assignedRM
         assignedRmId
         nextActionDueAt
@@ -368,6 +372,7 @@ export const LEADS_TAB_QUERY = gql`
         phone
         leadSource
         clientStage
+        stageFilter
         status
         assignedRM
         assignedRmId
@@ -410,8 +415,8 @@ export const FOLLOWUPS_TAB_QUERY = gql`
 
 // Calls Tab Query - Optimized for call history and pending calls
 export const CALLS_TAB_QUERY = gql`
-  query CallsTab($leadId: ID, $limit: Int, $includeMissed: Boolean) {
-    pendingLeadCallLogs(leadId: $leadId, limit: $limit, includeMissed: $includeMissed) {
+  query CallsTab($leadId: ID, $limit: Int) {
+    pendingLeadCallLogs(leadId: $leadId, limit: $limit, includeMissed: true) {
       id
       leadId
       phoneNumber
@@ -423,17 +428,20 @@ export const CALLS_TAB_QUERY = gql`
       nextFollowUpAt
       createdByName
     }
-    missedLeadCalls(leadId: $leadId, limit: $limit) {
-      id
-      leadId
-      phoneNumber
-      direction
-      status
-      occurredAt
-      durationSec
-      failReason
-      nextFollowUpAt
-      createdByName
+    missedLeadCallsSummary(leadId: $leadId, limit: $limit) {
+      total
+      calls {
+        id
+        leadId
+        phoneNumber
+        direction
+        status
+        occurredAt
+        durationSec
+        failReason
+        nextFollowUpAt
+        createdByName
+      }
     }
   }
 `;

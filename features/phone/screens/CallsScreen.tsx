@@ -27,6 +27,7 @@ type FollowUpLead = {
   name?: string | null;
   phone?: string | null;
   clientStage?: string | null;
+  stageFilter?: string | null;
   leadSource?: string | null;
   nextActionDueAt?: string | null;
 };
@@ -39,16 +40,40 @@ type MissedCallLog = {
   status?: string | null;
   failReason?: string | null;
   occurredAt?: string | null;
+  durationSec?: number | null;
+  nextFollowUpAt?: string | null;
   createdByName?: string | null;
 };
 
-const isDueTodayOrPast = (iso?: string | null) => {
+type MissedCallSummary = {
+  total?: number | null;
+  calls?: MissedCallLog[] | null;
+};
+
+const buildTodayBounds = () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+};
+
+const isPendingAfterGrace = (iso?: string | null) => {
   if (!iso) return false;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return false;
-  const endOfToday = new Date();
-  endOfToday.setHours(23, 59, 59, 999);
-  return date.getTime() <= endOfToday.getTime();
+  const due = new Date(iso);
+  if (Number.isNaN(due.getTime())) return false;
+
+  const now = new Date();
+  const { start } = buildTodayBounds();
+  const graceMs = 60 * 60 * 1000; // 1 hour
+
+  // Anything before today is immediately pending
+  if (due.getTime() < start.getTime()) {
+    return true;
+  }
+
+  // For today's items, require the 1-hour grace to elapse
+  return now.getTime() - due.getTime() >= graceMs;
 };
 
 const formatOverdue = (minutes: number) => {
@@ -125,7 +150,7 @@ export function CallsScreen() {
     loading: callsLoading,
     refetch: refetchCalls,
   } = useQuery(CALLS_TAB_QUERY, {
-    variables: { limit: 50, includeMissed: true },
+    variables: { limit: 50 },
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
   });
@@ -143,7 +168,7 @@ export function CallsScreen() {
   const pendingLeads: FollowUpLead[] = useMemo(() => {
     const items: FollowUpLead[] = (leadsData as any)?.leads?.items ?? [];
     return items
-      .filter((lead) => isDueTodayOrPast(lead?.nextActionDueAt))
+      .filter((lead) => isPendingAfterGrace(lead?.nextActionDueAt))
       .sort((a, b) => {
         const left = a?.nextActionDueAt
           ? new Date(a.nextActionDueAt).getTime()
@@ -155,21 +180,26 @@ export function CallsScreen() {
       });
   }, [leadsData]);
 
+  const missedSummary: MissedCallSummary = useMemo(
+    () => (callData as any)?.missedLeadCallsSummary ?? {},
+    [callData]
+  );
+
   const missedCalls: MissedCallLog[] = useMemo(() => {
-    const items: MissedCallLog[] = (callData as any)?.missedLeadCalls ?? [];
+    const items: MissedCallLog[] = missedSummary?.calls ?? [];
     return [...items].sort((a, b) => {
       const left = a?.occurredAt ? new Date(a.occurredAt).getTime() : 0;
       const right = b?.occurredAt ? new Date(b.occurredAt).getTime() : 0;
       return right - left;
     });
-  }, [callData]);
+  }, [missedSummary]);
 
   const buckets: CallBucket[] = useMemo(
     () => [
       {
         key: "pending",
         label: "Pending",
-        description: "Follow up on today's and overdue calls.",
+        description: "Calls overdue by 1h or more (today and earlier).",
         tone: "primary",
         count: pendingLeads.length,
       },
@@ -178,10 +208,10 @@ export function CallsScreen() {
         label: "Missed",
         description: "Call back recent missed calls to re-engage.",
         tone: "error",
-        count: missedCalls.length,
+        count: missedSummary?.total ?? missedCalls.length,
       },
     ],
-    [missedCalls.length, pendingLeads.length]
+    [missedCalls.length, missedSummary?.total, pendingLeads.length]
   );
 
   const [activeBucket, setActiveBucket] = useState<CallBucketKey>("pending");
@@ -192,12 +222,20 @@ export function CallsScreen() {
   );
 
   const handleCallLead = useCallback(
-    async (lead: { id?: string; name?: string | null; phone?: string | null }) => {
+    async (lead: {
+      id?: string;
+      name?: string | null;
+      phone?: string | null;
+      clientStage?: string | null;
+      stageFilter?: string | null;
+    }) => {
       if (!lead.phone) return;
       await startCall({
         leadId: lead.id,
         leadName: lead.name ?? undefined,
         phone: lead.phone ?? "",
+        clientStage: lead.clientStage ?? null,
+        stageFilter: lead.stageFilter ?? null,
       });
     },
     [startCall]

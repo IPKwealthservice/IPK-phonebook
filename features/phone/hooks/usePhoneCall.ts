@@ -25,7 +25,13 @@ import {
   recordMissedIncomingLeadCall,
 } from "@/features/leads/services/interactions.service";
 
-export type ActiveLead = { id: string; name?: string; phone?: string } | null;
+export type ActiveLead = {
+  id: string;
+  name?: string;
+  phone?: string;
+  clientStage?: string | null;
+  stageFilter?: string | null;
+} | null;
 type CallStatus = "connected" | "missed" | "no-answer" | "unreachable" | null;
 
 export interface UsePhoneCallReturn {
@@ -42,6 +48,8 @@ export interface UsePhoneCallReturn {
     leadId?: string;
     leadName?: string;
     phone?: string;
+    clientStage?: string | null;
+    stageFilter?: string | null;
   }) => Promise<void>;
   closeFollowUp: () => void;
 }
@@ -77,6 +85,8 @@ type LeadDirectoryEntry = {
   id: string;
   name?: string | null;
   primaryPhone?: string | null;
+  clientStage?: string | null;
+  stageFilter?: string | null;
   numbers: string[];
   normalizedNumbers: string[];
   numberLabels?: Record<string, string | undefined>;
@@ -96,6 +106,8 @@ const findLeadMatch = (
         id: entry.id,
         name: entry.name ?? undefined,
         phone: matchedNumber ?? entry.primaryPhone ?? undefined,
+        clientStage: entry.clientStage ?? null,
+        stageFilter: entry.stageFilter ?? null,
       };
     }
   }
@@ -178,6 +190,8 @@ const fetchLeadDirectory = async (): Promise<LeadDirectoryEntry[]> => {
           id: String(item.id),
           name: item?.name,
           primaryPhone,
+          clientStage: item?.clientStage ?? null,
+          stageFilter: item?.stageFilter ?? null,
           numbers,
           normalizedNumbers,
           numberLabels,
@@ -398,7 +412,6 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const finalizeCall = useCallback(async () => {
     if (finalizingRef.current) return;
     finalizingRef.current = true;
-    hasLoggedCallRef.current = false;
 
     if (finalizeTimerRef.current) {
       clearTimeout(finalizeTimerRef.current);
@@ -601,7 +614,6 @@ export function usePhoneCall(): UsePhoneCallReturn {
       incomingMatchedLeadRef.current = null;
       callOriginRef.current = null;
       callEndReasonRef.current = null;
-      hasLoggedCallRef.current = false;
       finalizingRef.current = false;
     }
   }, []);
@@ -613,6 +625,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
     const unsubIncoming = subscribeIncomingCall(({ phoneNumber }) => {
       const normalized = phoneNumber ? normalizePhone(phoneNumber) : null;
       callOriginRef.current = "incoming";
+      hasLoggedCallRef.current = false;
       setIncomingCallNumber(normalized);
       if (!isCallingRef.current) {
         setIsCalling(true);
@@ -764,6 +777,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
 
   const startCall = useCallback<UsePhoneCallReturn["startCall"]>(
     async (opts) => {
+      hasLoggedCallRef.current = false;
       const choices = buildNumberChoices(opts);
       const selected = await selectNumberForCall(choices);
       if (!selected) {
@@ -805,6 +819,8 @@ export function usePhoneCall(): UsePhoneCallReturn {
           id: String(opts.leadId),
           name: opts.leadName,
           phone: sourceNumber,
+          clientStage: opts.clientStage ?? null,
+          stageFilter: opts.stageFilter ?? null,
         });
       } else {
         setActiveLead(null);

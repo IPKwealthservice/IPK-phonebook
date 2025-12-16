@@ -90,12 +90,8 @@ export default function CallFollowUpModal({
 }: CallFollowUpModalProps) {
   const [notes, setNotes] = useState("");
   const [nextAction, setNextAction] = useState("");
-  const [selectedStage, setSelectedStage] = useState<ClientStageOption | null>(
-    (lead?.clientStage as ClientStageOption) || null
-  );
-  const [selectedStageFilter, setSelectedStageFilter] = useState<LeadStageFilterOption | null>(
-    (lead?.stageFilter as LeadStageFilterOption) || null
-  );
+  const [selectedStage, setSelectedStage] = useState<ClientStageOption | null>(null);
+  const [selectedStageFilter, setSelectedStageFilter] = useState<LeadStageFilterOption | null>(null);
   const [nextFollowUpDate, setNextFollowUpDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [stagePickerOpen, setStagePickerOpen] = useState(false);
@@ -104,11 +100,44 @@ export default function CallFollowUpModal({
   const datePickerMountedRef = useRef(false);
   const { logCall, changeStage } = useCallMutations();
 
+  // Sync state with lead data when modal opens or lead changes
+  useEffect(() => {
+    if (visible && lead?.id) {
+      // Set lead stage if it exists - accept any string value
+      const leadStage = lead.clientStage;
+      if (leadStage && typeof leadStage === "string" && leadStage.trim()) {
+        // Try to use it as a valid option, cast it even if not in the list
+        // This allows displaying current values even if they're not in our predefined list
+        setSelectedStage(leadStage as ClientStageOption);
+      } else {
+        setSelectedStage(null);
+      }
+
+      // Set stage filter if it exists - accept any string value
+      const leadFilter = lead.stageFilter;
+      if (leadFilter && typeof leadFilter === "string" && leadFilter.trim()) {
+        // Try to use it as a valid option, cast it even if not in the list
+        // This allows displaying current values even if they're not in our predefined list
+        setSelectedStageFilter(leadFilter as LeadStageFilterOption);
+      } else {
+        setSelectedStageFilter(null);
+      }
+    } else if (!visible) {
+      // Reset when modal closes
+      setSelectedStage(null);
+      setSelectedStageFilter(null);
+    }
+  }, [visible, lead?.id, lead?.clientStage, lead?.stageFilter]);
+
   // Reset date picker state when modal closes
   useEffect(() => {
     if (!visible) {
       setShowDatePicker(false);
       datePickerMountedRef.current = false;
+      // Reset form state when modal closes
+      setNotes("");
+      setNextAction("");
+      setNextFollowUpDate(null);
     }
   }, [visible]);
 
@@ -178,9 +207,9 @@ export default function CallFollowUpModal({
       onClose();
       setNotes("");
       setNextAction("");
-      setSelectedStage(null);
-      setSelectedStageFilter(null);
       setNextFollowUpDate(null);
+      // Note: selectedStage and selectedStageFilter will be synced from lead prop
+      // when modal opens again via the useEffect hook
     } catch (err) {
       console.error("Call follow-up save failed", err);
       Alert.alert("Call Follow-up", "Failed to save follow-up. Please try again.");

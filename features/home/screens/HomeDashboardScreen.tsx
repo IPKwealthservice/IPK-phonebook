@@ -59,6 +59,7 @@ type LeadLite = {
   phone?: string | null;
   email?: string | null;
   clientStage?: string | null;
+  stageFilter?: string | null;
   createdAt?: string | null;
 };
 
@@ -144,6 +145,8 @@ export const HomeDashboardScreen = () => {
       leadId: lead.id,
       leadName: lead.name ?? undefined,
       phone: lead.phone,
+      clientStage: lead.clientStage ?? null,
+      stageFilter: lead.stageFilter ?? null,
     });
   };
 

@@ -1,6 +1,6 @@
 import { useQuery } from '@apollo/client/react';
 import React, { useMemo, useState } from 'react';
-import { Linking, FlatList, Pressable, RefreshControl, StyleSheet, View, TextInput, ScrollView } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LoadingState } from '@/components/feedback/LoadingState';
@@ -9,6 +9,7 @@ import { Text } from '@/components/ui/Text';
 import { MY_ASSIGNED_LEADS } from '@/core/graphql/queries';
 import { useTheme } from '@/core/theme/ThemeProvider';
 import { humanizeEnum } from '@/core/utils/format';
+import { usePhoneCall } from '@/features/phone/hooks/usePhoneCall';
 import LeadDetailSheet from './LeadDetailSheet';
 
 type LeadItem = {
@@ -17,6 +18,7 @@ type LeadItem = {
   name?: string | null;
   phone?: string | null;
   clientStage?: string | null;
+  stageFilter?: string | null;
   leadSource?: string | null;
   assignedRM?: string | null;
   assignedRmId?: string | null;
@@ -30,6 +32,8 @@ export function MyLeadsScreen() {
   const [page] = useState(1);
   const [pageSize] = useState(500);
 
+  const { startCall } = usePhoneCall();
+
   const { data, loading, refetch } = useQuery(MY_ASSIGNED_LEADS, {
     variables: { page, pageSize },
     fetchPolicy: 'cache-and-network',
@@ -37,19 +41,6 @@ export function MyLeadsScreen() {
   });
 
   const allLeads: LeadItem[] = useMemo(() => data?.myAssignedLeads?.items ?? [], [data]);
-  const stageOrder = [
-    'NEW_LEAD',
-    'FIRST_TALK_DONE',
-    'FOLLOWING_UP',
-    'CLIENT_INTERESTED',
-    'ACCOUNT_OPENED',
-    'NO_RESPONSE_DORMANT',
-    'NOT_INTERESTED_DORMANT',
-    'RISKY_CLIENT_DORMANT',
-    'HIBERNATED',
-  ];
-  const stageFilters = ['ALL', ...stageOrder];
-  const [selectedStage, setSelectedStage] = useState<string>('ALL');
   const [search, setSearch] = useState('');
   const normalizedQuery = useMemo(() => search.trim(), [search]);
   const normalizedDigits = useMemo(() => normalizedQuery.replace(/\D/g, ''), [normalizedQuery]);
@@ -63,20 +54,6 @@ export function MyLeadsScreen() {
       return nameHit || phoneHit || codeHit;
     });
   }, [allLeads, normalizedQuery, normalizedDigits, normalizedUpper]);
-  const groupedByStage = useMemo(() => {
-    const map = new Map<string, LeadItem[]>();
-    for (const lead of leads) {
-      const key = String(lead.clientStage ?? 'NEW_LEAD');
-      const arr = map.get(key) ?? [];
-      arr.push(lead);
-      map.set(key, arr);
-    }
-    return map;
-  }, [leads]);
-  const filteredByStage = useMemo(() => {
-    if (selectedStage === 'ALL') return leads;
-    return leads.filter((l) => (l.clientStage ?? 'NEW_LEAD') === selectedStage);
-  }, [leads, selectedStage]);
   const agingDays = (iso?: string | null) => {
     if (!iso) return '—';
     const days = Math.max(
@@ -101,14 +78,15 @@ export function MyLeadsScreen() {
     setTimeout(() => setDetailId(null), 300);
   };
 
-  const placeCall = async (phone?: string | null) => {
-    if (!phone) return;
-    const normalized = phone.replace(/\s|[-()]/g, '');
-    const url = `tel:${normalized}`;
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) await Linking.openURL(url);
-    } catch {}
+  const placeCall = async (lead: LeadItem) => {
+    if (!lead.phone) return;
+    await startCall({
+      leadId: lead.id,
+      leadName: lead.name ?? undefined,
+      phone: lead.phone,
+      clientStage: lead.clientStage ?? null,
+      stageFilter: lead.stageFilter ?? null,
+    });
   };
 
   if (loading && !leads.length) {
@@ -122,14 +100,14 @@ export function MyLeadsScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <FlatList
-        data={filteredByStage}
+        data={leads}
         keyExtractor={(it) => it.id}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => refetch()} />}
         contentContainerStyle={styles.list}
         ListHeaderComponent={(
           <View style={styles.headerArea}>
             <Text weight="semibold" size="lg">All leads</Text>
-            <Text tone="muted" size="sm">Stage-wise view with quick filters</Text>
+            <Text tone="muted" size="sm">Search by lead code, name, or phone</Text>
             <View style={styles.searchWrap}>
               <TextInput
                 placeholder="Search lead code, name, or phone"
@@ -139,44 +117,6 @@ export function MyLeadsScreen() {
                 style={styles.searchInput}
               />
             </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.stageChips}
-            >
-              {stageFilters.map((stage) => {
-                const active = selectedStage === stage;
-                const count = stage === 'ALL'
-                  ? leads.length
-                  : groupedByStage.get(stage)?.length ?? 0;
-                return (
-                  <Pressable
-                    key={stage}
-                    onPress={() => setSelectedStage(stage)}
-                    style={[
-                      styles.stagePill,
-                      active && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-                    ]}
-                  >
-                    <Text
-                      size="sm"
-                      weight={active ? 'bold' : 'medium'}
-                      style={{ color: active ? '#fff' : theme.colors.text }}
-                    >
-                      {stage === 'ALL' ? 'All stages' : humanizeEnum(stage)}
-                    </Text>
-                    <View style={[
-                      styles.stageCount,
-                      active && { backgroundColor: 'rgba(255,255,255,0.18)' },
-                    ]}>
-                      <Text size="xs" weight="bold" style={{ color: active ? '#fff' : theme.colors.text }}>
-                        {count}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
           </View>
         )}
         renderItem={({ item }) => (
@@ -199,7 +139,7 @@ export function MyLeadsScreen() {
                   {item.phone ? <Text size="sm" tone="muted">{item.phone}</Text> : null}
                   <Text size="sm" tone="muted">{item.leadSource ?? item.clientStage ?? ''}</Text>
                 </View>
-                <Pressable style={styles.callButton} onPress={() => placeCall(item.phone)}>
+                <Pressable style={styles.callButton} onPress={() => placeCall(item)}>
                   <Text weight="bold" size="sm" style={{ color: '#fff' }}>Call</Text>
                 </Pressable>
               </View>

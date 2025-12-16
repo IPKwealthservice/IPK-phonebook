@@ -28,20 +28,25 @@ type FollowUpLead = {
   phone?: string | null;
   leadSource?: string | null;
   clientStage?: string | null;
+  stageFilter?: string | null;
   assignedRM?: string | null;
   assignedRmId?: string | null;
   nextActionDueAt?: string | null;
 };
 
-const isSameDay = (iso?: string | null) => {
+const buildTodayWindow = () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+};
+
+const isDueToday = (iso?: string | null, window = buildTodayWindow()) => {
   if (!iso) return false;
-  const date = new Date(iso);
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
+  const due = new Date(iso);
+  if (Number.isNaN(due.getTime())) return false;
+  return due >= window.start && due <= window.end;
 };
 
 const formatDueLabel = (iso?: string | null) => {
@@ -97,10 +102,12 @@ export function TodaysFollowUpsScreen() {
     notifyOnNetworkStatusChange: true,
   });
 
+  const todayWindow = useMemo(buildTodayWindow, []);
+
   const leads: FollowUpLead[] = useMemo(() => {
     const items: FollowUpLead[] = (data as any)?.leads?.items ?? [];
     return items
-      .filter((item) => isSameDay(item?.nextActionDueAt))
+      .filter((item) => isDueToday(item?.nextActionDueAt, todayWindow))
       .sort((a, b) => {
         const left = a?.nextActionDueAt
           ? new Date(a.nextActionDueAt).getTime()
@@ -110,7 +117,7 @@ export function TodaysFollowUpsScreen() {
           : 0;
         return left - right;
       });
-  }, [data]);
+  }, [data, todayWindow]);
 
   const openLead = (id: string) => {
     setDetailId(id);
@@ -123,6 +130,8 @@ export function TodaysFollowUpsScreen() {
       leadId: lead.id,
       leadName: lead.name ?? undefined,
       phone: lead.phone,
+      clientStage: lead.clientStage ?? null,
+      stageFilter: lead.stageFilter ?? null,
     });
   };
 

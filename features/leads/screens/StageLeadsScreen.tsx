@@ -28,6 +28,7 @@ type LeadItem = {
   name?: string | null;
   phone: string;
   clientStage?: StageKey | null;
+  stageFilter?: string | null;
   status: string;
   leadSource?: string | null;
   assignedRM?: string | null;
@@ -114,6 +115,8 @@ export function StageLeadsScreen() {
         leadId: lead.id,
         leadName: lead.name ?? undefined,
         phone: lead.phone,
+        clientStage: lead.clientStage ?? null,
+        stageFilter: lead.stageFilter ?? null,
       });
     } catch (err) {
       console.error('Failed to start call', err);

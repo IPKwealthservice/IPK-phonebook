@@ -13,14 +13,18 @@ import { useQuery } from "@apollo/client/react";
 import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   Alert,
   Animated,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -50,6 +54,51 @@ type RemarkItem =
       byName?: string | null;
       text?: string | null;
     };
+
+type ClientStageOption =
+  | "NEW_LEAD"
+  | "FIRST_TALK_DONE"
+  | "FOLLOWING_UP"
+  | "CLIENT_INTERESTED"
+  | "ACCOUNT_OPENED"
+  | "NO_RESPONSE_DORMANT"
+  | "NOT_INTERESTED_DORMANT"
+  | "RISKY_CLIENT_DORMANT"
+  | "HIBERNATED";
+
+type LeadStageFilterOption =
+  | "NEED_CLARIFICATION"
+  | "FUTURE_INTERESTED"
+  | "NOT_INTERESTED"
+  | "NOT_ELIGIBLE"
+  | "HIGH_PRIORITY"
+  | "LOW_PRIORITY"
+  | "ON_PROCESS";
+
+const CLIENT_STAGE_OPTIONS: ClientStageOption[] = [
+  "NEW_LEAD",
+  "FIRST_TALK_DONE",
+  "FOLLOWING_UP",
+  "CLIENT_INTERESTED",
+  "ACCOUNT_OPENED",
+  "NO_RESPONSE_DORMANT",
+  "NOT_INTERESTED_DORMANT",
+  "RISKY_CLIENT_DORMANT",
+  "HIBERNATED",
+];
+
+const LEAD_STAGE_FILTER_OPTIONS: (LeadStageFilterOption | null)[] = [
+  null,
+  "NEED_CLARIFICATION",
+  "FUTURE_INTERESTED",
+  "NOT_INTERESTED",
+  "NOT_ELIGIBLE",
+  "HIGH_PRIORITY",
+  "LOW_PRIORITY",
+  "ON_PROCESS",
+];
+
+const QUICK_NOTES = ["Call not connected", "Not reachable / switched off"];
 
 export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
   const theme = useTheme();
@@ -97,11 +146,34 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
 
   const [logOpen, setLogOpen] = useState(false);
   const [note, setNote] = useState("");
-  const [nextFollowUpAt, setNextFollowUpAt] = useState("");
   const [channel, setChannel] = useState<
     "CALL" | "WHATSAPP" | "EMAIL" | "OTHER"
   >("CALL");
+  const [selectedStage, setSelectedStage] = useState<ClientStageOption | null>(
+    (lead?.clientStage as ClientStageOption) || null
+  );
+  const [selectedStageFilter, setSelectedStageFilter] =
+    useState<LeadStageFilterOption | null>(
+      (lead?.stageFilter as LeadStageFilterOption) || null
+    );
+  const [nextFollowUpDate, setNextFollowUpDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [manualDateText, setManualDateText] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const isAndroidPickerAvailable = useMemo(() => {
+    if (Platform.OS !== "android") return true;
+    try {
+      // RNDateTimePicker native module is required for Android picker.
+      // If missing (e.g., not installed/linked in a custom dev client),
+      // skip rendering to avoid crashes.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { NativeModules } = require("react-native");
+      return !!(NativeModules as any)?.RNDateTimePicker;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const {
     startCall,
@@ -136,7 +208,13 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
   const handleCall = async () => {
     if (!leadId || !primaryPhone) return;
     try {
-      await startCall({ leadId, leadName: name, phone: primaryPhone });
+      await startCall({
+        leadId,
+        leadName: name,
+        phone: primaryPhone,
+        clientStage: lead?.clientStage ?? null,
+        stageFilter: lead?.stageFilter ?? null,
+      });
     } catch {
       Alert.alert("Call", "Unable to open the dialer.");
     }
@@ -150,19 +228,46 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
         leadId,
         channel,
         note: note.trim(),
-        nextFollowUpAt: nextFollowUpAt || null,
-        stage: lead?.clientStage,
-        stageFilter: lead?.stageFilter ?? null,
+        nextFollowUpAt: nextFollowUpDate ? nextFollowUpDate.toISOString() : null,
+        stage: selectedStage ?? lead?.clientStage ?? null,
+        stageFilter: selectedStageFilter ?? lead?.stageFilter ?? null,
         saveRemark: true,
       });
       await refetch();
       setNote("");
-      setNextFollowUpAt("");
+      setNextFollowUpDate(null);
+      setSelectedStage(lead?.clientStage ?? null);
+      setSelectedStageFilter(lead?.stageFilter ?? null);
       setLogOpen(false);
     } finally {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (logOpen) {
+      setSelectedStage((lead?.clientStage as ClientStageOption) || null);
+      setSelectedStageFilter((lead?.stageFilter as LeadStageFilterOption) || null);
+      setNextFollowUpDate(
+        lead?.nextFollowUpAt ? new Date(lead.nextFollowUpAt) : null
+      );
+      setManualDateText(
+        lead?.nextFollowUpAt
+          ? new Date(lead.nextFollowUpAt).toLocaleString()
+          : ""
+      );
+    }
+  }, [lead?.clientStage, lead?.stageFilter, lead?.nextFollowUpAt, logOpen]);
+
+  // Ensure the Android picker never tries to dismiss after the modal closes.
+  useEffect(() => {
+    if (!logOpen && showDatePicker) {
+      setShowDatePicker(false);
+    }
+    return () => {
+      setShowDatePicker(false);
+    };
+  }, [logOpen, showDatePicker]);
 
   const remarks: RemarkItem[] = useMemo(() => {
     if (!lead?.remark) return [];
@@ -673,77 +778,250 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
         onRequestClose={() => setLogOpen(false)}
       >
         <View style={styles.modalOverlay}>
-          <Card style={[styles.card, styles.logCard]}>
-            <View style={styles.modalHeader}>
-              <Text size="lg" weight="bold">
-                Log Interaction
-              </Text>
-              <Pressable onPress={() => setLogOpen(false)}>
-                <MaterialIcons
-                  name="close"
-                  size={22}
-                  color={theme.colors.text}
-                />
-              </Pressable>
-            </View>
-
-            <View style={{ gap: theme.spacing.md }}>
-              {/* CHANNEL SELECT */}
-              <View style={styles.channelRow}>
-                {["CALL", "WHATSAPP", "EMAIL", "OTHER"].map((option) => {
-                  const selected = channel === option;
-                  return (
-                    <Pressable
-                      key={option}
-                      onPress={() => setChannel(option as any)}
-                      style={[
-                        styles.channelPill,
-                        selected && {
-                          backgroundColor: theme.colors.primary,
-                        },
-                      ]}
-                    >
-                      <Text
-                        size="sm"
-                        weight="semibold"
-                        style={{
-                          color: selected ? "#fff" : theme.colors.text,
-                        }}
-                      >
-                        {option}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 32}
+            style={styles.logCardContainer}
+          >
+            <View style={styles.logCard}>
+              <View style={styles.logHeaderRow}>
+                <View>
+                  <Text style={styles.logTitle}>Log Interaction</Text>
+                  <Text style={styles.logSubtitle}>
+                    Align the stage, status, next action, and notes before saving.
+                  </Text>
+                </View>
+                <Pressable onPress={() => setLogOpen(false)} style={styles.logCloseBtn}>
+                  <MaterialIcons name="close" size={20} color="#E2E8F0" />
+                </Pressable>
               </View>
 
-              <Field
-                label="Notes"
-                multiline
-                numberOfLines={4}
-                value={note}
-                onChangeText={setNote}
-                style={{
-                  minHeight: 100,
-                  textAlignVertical: "top",
-                }}
-              />
+              <ScrollView
+                style={styles.logScroll}
+                contentContainerStyle={styles.logScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={styles.sectionLabel}>Channel</Text>
+                <View style={styles.channelRow}>
+                  {["CALL", "WHATSAPP", "EMAIL", "OTHER"].map((option) => {
+                    const selected = channel === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setChannel(option as any)}
+                        style={[
+                          styles.channelPill,
+                          selected && styles.channelPillActive,
+                        ]}
+                      >
+                        <Text
+                          style={[styles.channelText, selected && styles.channelTextActive]}
+                        >
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
-              <Field
-                label="Next follow-up (ISO)"
-                value={nextFollowUpAt}
-                onChangeText={setNextFollowUpAt}
-              />
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.sectionLabel}>Stage</Text>
+                  <View style={styles.optionWrap}>
+                    {CLIENT_STAGE_OPTIONS.map((option) => {
+                      const selected = selectedStage === option;
+                      return (
+                        <Pressable
+                          key={option}
+                          onPress={() => setSelectedStage(option)}
+                          style={[
+                            styles.optionPill,
+                            selected && styles.optionPillActive,
+                          ]}
+                        >
+                          <Text
+                            style={[styles.optionText, selected && styles.optionTextActive]}
+                          >
+                            {slugToLabel(option)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
 
-              <Button
-                label={saving ? "Saving..." : "Save interaction"}
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.sectionLabel}>Status</Text>
+                  <View style={styles.optionWrap}>
+                    {LEAD_STAGE_FILTER_OPTIONS.map((option) => {
+                      const selected = selectedStageFilter === option;
+                      return (
+                        <Pressable
+                          key={option ?? "none"}
+                          onPress={() => setSelectedStageFilter(option)}
+                          style={[
+                            styles.optionPill,
+                            selected && styles.optionPillActive,
+                          ]}
+                        >
+                          <Text
+                            style={[styles.optionText, selected && styles.optionTextActive]}
+                          >
+                            {option ? slugToLabel(option, "No status") : "No status"}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.sectionLabel}>Next action due date</Text>
+                  {Platform.OS === "android" && !isAndroidPickerAvailable ? (
+                    <View style={{ gap: 8 }}>
+                      <Text size="sm" style={{ color: "#94A3B8" }}>
+                        Date picker unavailable in this build. Enter date/time manually
+                        (YYYY-MM-DD HH:mm) or install the native module.
+                      </Text>
+                      <TextInput
+                        value={manualDateText}
+                        onChangeText={(text) => {
+                          setManualDateText(text);
+                          const parsed = Date.parse(text);
+                          if (!Number.isNaN(parsed)) {
+                            setNextFollowUpDate(new Date(parsed));
+                          }
+                        }}
+                        placeholder="YYYY-MM-DD HH:mm"
+                        placeholderTextColor="#94A3B8"
+                        style={styles.logInput}
+                      />
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => setShowDatePicker(true)}
+                      style={styles.dateButton}
+                    >
+                      <Text style={styles.dateButtonText}>
+                        {nextFollowUpDate
+                          ? nextFollowUpDate.toLocaleString()
+                          : "Select date & time"}
+                      </Text>
+                      <MaterialIcons name="calendar-today" size={18} color="#CBD5E1" />
+                    </Pressable>
+                  )}
+                </View>
+
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.sectionLabel}>Notes</Text>
+                  <View style={styles.quickNotesRow}>
+                    {QUICK_NOTES.map((item) => (
+                      <Pressable
+                        key={item}
+                        onPress={() => setNote(item)}
+                        style={styles.quickNotePill}
+                      >
+                        <Text style={styles.quickNoteText}>{item}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <TextInput
+                    multiline
+                    placeholder="Add context, commitments, objections, etc."
+                    placeholderTextColor="#94A3B8"
+                    value={note}
+                    onChangeText={setNote}
+                    style={styles.logInput}
+                  />
+                </View>
+              </ScrollView>
+
+              <Pressable
                 onPress={handleLogInteraction}
                 disabled={saving || !note.trim()}
-                loading={saving}
-              />
+                style={[
+                  styles.logPrimaryBtn,
+                  (saving || !note.trim()) && { opacity: 0.6 },
+                ]}
+              >
+                <Text style={styles.logPrimaryText}>
+                  {saving ? "Saving..." : "Save interaction"}
+                </Text>
+              </Pressable>
             </View>
-          </Card>
+          </KeyboardAvoidingView>
         </View>
+
+        {Platform.OS === "android" && showDatePicker && isAndroidPickerAvailable && (
+          <DateTimePicker
+            value={nextFollowUpDate || new Date()}
+            mode="datetime"
+            display="default"
+            onChange={(event, date) => {
+              // On Android, the native picker occasionally throws when we try to
+              // dismiss during unmount; keep handling simple and single-shot.
+              if (event.type === "set" && date) {
+                setNextFollowUpDate(date);
+                setShowDatePicker(false);
+              } else if (event.type === "dismissed") {
+                setShowDatePicker(false);
+              }
+            }}
+            minimumDate={new Date()}
+          />
+        )}
+
+        {Platform.OS === "ios" && showDatePicker && (
+          <Modal
+            visible={showDatePicker}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowDatePicker(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => setShowDatePicker(false)}
+              />
+              <View style={styles.datePickerCard}>
+                <View style={styles.datePickerHeader}>
+                  <Pressable onPress={() => setShowDatePicker(false)}>
+                    <Text style={styles.datePickerCancel}>Cancel</Text>
+                  </Pressable>
+                  <Text style={styles.datePickerTitle}>Select Date & Time</Text>
+                  <Pressable
+                    onPress={() => {
+                      if (nextFollowUpDate) {
+                        setShowDatePicker(false);
+                      }
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.datePickerDone,
+                        !nextFollowUpDate && { opacity: 0.5 },
+                      ]}
+                    >
+                      Done
+                    </Text>
+                  </Pressable>
+                </View>
+                <DateTimePicker
+                  value={nextFollowUpDate || new Date()}
+                  mode="datetime"
+                  display="spinner"
+                  onChange={(event, date) => {
+                    if (event.type === "set" && date) {
+                      setNextFollowUpDate(date);
+                    }
+                  }}
+                  minimumDate={new Date()}
+                  style={styles.datePickerIOS}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
       </Modal>
 
       {/* ===================== FOLLOW UP MODAL ===================== */}
@@ -779,12 +1057,14 @@ function getInitials(fullName: string) {
   if (!fullName) return "LD";
   const parts = fullName.trim().split(/\s+/);
   const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts.at(-1)?.[0] ?? "" : "";
+  // Avoid Array.prototype.at for React Native environments where it may not be available
+  const lastIndex = parts.length - 1;
+  const last = parts.length > 1 ? parts[lastIndex]?.[0] ?? "" : "";
   return (first + last).toUpperCase();
 }
 
-function slugToLabel(value?: string | null) {
-  if (!value) return "";
+function slugToLabel(value?: string | null, fallback = "") {
+  if (!value) return fallback;
   return value
     .split("_")
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
@@ -1065,22 +1345,69 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       padding: 20,
     },
 
+  logCardContainer: {
+    width: "100%",
+    alignItems: "center",
+  },
+
     logCard: {
       width: "100%",
-      maxWidth: 480,
+      maxWidth: 520,
+      borderRadius: 16,
+      backgroundColor: "#0F172A",
+      padding: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "#334155",
     },
 
-    modalHeader: {
+    logHeaderRow: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 16,
+      marginBottom: 12,
+      gap: 12,
+    },
+
+    logTitle: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: "#F8FAFC",
+    },
+
+    logSubtitle: {
+      marginTop: 4,
+      color: "#94A3B8",
+    },
+
+    logCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: "rgba(255,255,255,0.06)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    logScroll: {
+      maxHeight: 420,
+    },
+
+    logScrollContent: {
+    paddingBottom: 24,
+      gap: 14,
+    },
+
+    sectionLabel: {
+      color: "#CBD5E1",
+      fontWeight: "600",
+      fontSize: 14,
     },
 
     channelRow: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 8,
+      marginTop: 8,
     },
 
     channelPill: {
@@ -1088,8 +1415,163 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
       paddingHorizontal: 12,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.background,
+      borderColor: "#475569",
+      backgroundColor: "#0B1220",
+    },
+
+    channelPillActive: {
+      backgroundColor: "rgba(79,70,229,0.2)",
+      borderColor: "#4F46E5",
+    },
+
+    channelText: {
+      color: "#CBD5E1",
+      fontWeight: "600",
+    },
+
+    channelTextActive: {
+      color: "#E0E7FF",
+    },
+
+    fieldBlock: {
+      gap: 8,
+    },
+
+    optionWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+
+    optionPill: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: "#475569",
+      backgroundColor: "#0B1220",
+    },
+
+    optionPillActive: {
+      backgroundColor: "rgba(79,70,229,0.2)",
+      borderColor: "#4F46E5",
+    },
+
+    optionText: {
+      color: "#CBD5E1",
+      fontSize: 13,
+      fontWeight: "600",
+    },
+
+    optionTextActive: {
+      color: "#E0E7FF",
+    },
+
+    dateButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderWidth: 1,
+      borderColor: "#475569",
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      backgroundColor: "#0B1220",
+    },
+
+    dateButtonText: {
+      color: "#F8FAFC",
+      fontSize: 14,
+      flex: 1,
+    },
+
+    quickNotesRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+
+    quickNotePill: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 12,
+      backgroundColor: "rgba(79,70,229,0.12)",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "rgba(79,70,229,0.35)",
+    },
+
+    quickNoteText: {
+      color: "#E0E7FF",
+      fontSize: 12,
+      fontWeight: "600",
+    },
+
+    logInput: {
+      borderWidth: 1,
+      borderColor: "#475569",
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      backgroundColor: "#0B1220",
+      color: "#F8FAFC",
+      minHeight: 96,
+      textAlignVertical: "top",
+    },
+
+    logPrimaryBtn: {
+      marginTop: 16,
+      height: 48,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#4F46E5",
+    },
+
+    logPrimaryText: {
+      color: "#FFFFFF",
+      fontWeight: "700",
+      fontSize: 15,
+    },
+
+    datePickerCard: {
+      backgroundColor: "#0F172A",
+      borderRadius: 16,
+      width: "100%",
+      maxWidth: 460,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "#334155",
+      overflow: "hidden",
+    },
+
+    datePickerHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: "#334155",
+    },
+
+    datePickerTitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: "#F8FAFC",
+    },
+
+    datePickerCancel: {
+      color: "#94A3B8",
+      fontSize: 16,
+    },
+
+    datePickerDone: {
+      color: "#4F46E5",
+      fontSize: 16,
+      fontWeight: "600",
+    },
+
+    datePickerIOS: {
+      backgroundColor: "#0F172A",
     },
   });
 
