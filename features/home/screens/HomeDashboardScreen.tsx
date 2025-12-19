@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
-import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
+import { LEADS_QUERY, MY_ASSIGNED_LEADS } from "@/core/graphql/gql/sales_queries";
 import { useTheme } from "@/core/theme/ThemeProvider";
 import { humanizeEnum } from "@/core/utils/format";
 import { useAuthStore } from "@/features/auth/store/auth.store";
@@ -55,18 +55,24 @@ function getInitials(name: string) {
 
 type LeadLite = {
   id: string;
+  leadCode?: string | null;
   name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   phone?: string | null;
   email?: string | null;
   clientStage?: string | null;
   stageFilter?: string | null;
   createdAt?: string | null;
+  assignedRM?: string | null;
+  assignedRmId?: string | null;
 };
 
 export const HomeDashboardScreen = () => {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === "ADMIN";
   const {
     startCall,
     isFollowUpOpen,
@@ -91,14 +97,16 @@ export const HomeDashboardScreen = () => {
   );
 
   // GraphQL query
-  const { data, loading, error } = useQuery(MY_ASSIGNED_LEADS, {
-    variables: { page: 1, pageSize: 100 },
+  const { data, loading, error } = useQuery(isAdmin ? LEADS_QUERY : MY_ASSIGNED_LEADS, {
+    variables: isAdmin ? { args: { page: 1, pageSize: 500 } } : { page: 1, pageSize: 100 },
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
   });
 
   const groupedByStage = useMemo(() => {
-    const items: LeadLite[] = (data as any)?.myAssignedLeads?.items ?? [];
+    const items: LeadLite[] = isAdmin
+      ? (data as any)?.leads?.items ?? []
+      : (data as any)?.myAssignedLeads?.items ?? [];
     const map = new Map<string, LeadLite[]>();
     for (const it of items) {
       const key = String(it?.clientStage ?? "NEW_LEAD");
@@ -107,7 +115,7 @@ export const HomeDashboardScreen = () => {
       map.set(key, arr);
     }
     return map;
-  }, [data]);
+  }, [data, isAdmin]);
 
   const stageOrder = [
     "NEW_LEAD",
@@ -322,11 +330,22 @@ export const HomeDashboardScreen = () => {
                           </Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text weight="semibold">{lead.name ?? "Unnamed"}</Text>
-                          <Text size="sm" tone="muted">{lead.phone ?? ""}</Text>
-                          {lead.email ? (
-                            <Text size="sm" tone="muted">{lead.email}</Text>
+                          {/* Lead Code - prominently displayed */}
+                          {lead.leadCode ? (
+                            <Text weight="bold" size="xs" style={{ color: theme.colors.primary }}>
+                              {lead.leadCode}
+                            </Text>
                           ) : null}
+                          {/* First Name and Last Name */}
+                          <Text weight="semibold">
+                            {([lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.name) ?? "Unnamed"}
+                          </Text>
+                          {/* Phone Number */}
+                          <Text size="sm" tone="muted">{lead.phone ?? ""}</Text>
+                          {/* RM assignment - shown ONLY for Admin */}
+                          {isAdmin && (
+                            <Text size="sm" tone="muted">RM: {lead.assignedRM ?? "Unassigned"}</Text>
+                          )}
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
                           <Text size="sm" tone="muted">{agingDays(lead.createdAt)}d</Text>
@@ -444,10 +463,6 @@ const makeStyles = (theme: ReturnType<typeof useTheme>) =>
   });
 
 export default HomeDashboardScreen;
-
-
-
-
 
 
 

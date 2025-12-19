@@ -6,9 +6,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LoadingState } from '@/components/feedback/LoadingState';
 import { Card } from '@/components/ui/Card';
 import { Text } from '@/components/ui/Text';
-import { MY_ASSIGNED_LEADS } from '@/core/graphql/queries';
+import { LEADS_QUERY, MY_ASSIGNED_LEADS } from '@/core/graphql/gql/sales_queries';
 import { useTheme } from '@/core/theme/ThemeProvider';
 import { humanizeEnum } from '@/core/utils/format';
+import { useAuthStore } from '@/features/auth/store/auth.store';
 import { usePhoneCall } from '@/features/phone/hooks/usePhoneCall';
 import LeadDetailSheet from './LeadDetailSheet';
 
@@ -16,6 +17,8 @@ type LeadItem = {
   id: string;
   leadCode?: string | null;
   name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   phone?: string | null;
   clientStage?: string | null;
   stageFilter?: string | null;
@@ -28,32 +31,54 @@ type LeadItem = {
 export function MyLeadsScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === 'ADMIN';
+  const isRM = user?.role === 'RM';
+  const isSignedIn = Boolean(user);
 
   const [page] = useState(1);
   const [pageSize] = useState(500);
 
   const { startCall } = usePhoneCall();
 
-  const { data, loading, refetch } = useQuery(MY_ASSIGNED_LEADS, {
-    variables: { page, pageSize },
-    fetchPolicy: 'cache-and-network',
-    notifyOnNetworkStatusChange: true,
-  });
+  // Fetch leads if user is signed in
+  // Admin sees all leads, others see their assigned leads
+  const shouldFetchLeads = isSignedIn;
+  
+  const { data, loading, refetch } = useQuery(
+    isAdmin ? LEADS_QUERY : MY_ASSIGNED_LEADS, 
+    {
+      variables: isAdmin ? { args: { page, pageSize } } : { page, pageSize },
+      fetchPolicy: 'cache-and-network',
+      notifyOnNetworkStatusChange: true,
+      skip: !shouldFetchLeads, // Skip query if user is not signed in
+    }
+  );
 
-  const allLeads: LeadItem[] = useMemo(() => data?.myAssignedLeads?.items ?? [], [data]);
+  const allLeads: LeadItem[] = useMemo(() => {
+    if (isAdmin) return data?.leads?.items ?? [];
+    return data?.myAssignedLeads?.items ?? [];
+  }, [data, isAdmin]);
   const [search, setSearch] = useState('');
   const normalizedQuery = useMemo(() => search.trim(), [search]);
+  const normalizedLower = useMemo(() => normalizedQuery.toLowerCase(), [normalizedQuery]);
   const normalizedDigits = useMemo(() => normalizedQuery.replace(/\D/g, ''), [normalizedQuery]);
   const normalizedUpper = useMemo(() => normalizedQuery.toUpperCase(), [normalizedQuery]);
   const leads: LeadItem[] = useMemo(() => {
     if (!normalizedQuery) return allLeads;
     return allLeads.filter((l) => {
-      const nameHit = (l.name ?? '').toLowerCase().includes(normalizedQuery.toLowerCase());
+      const firstName = (l.firstName ?? '').toLowerCase();
+      const lastName = (l.lastName ?? '').toLowerCase();
+      const fullName = [firstName, lastName].filter(Boolean).join(' ');
+      const nameHit = (l.name ?? '').toLowerCase().includes(normalizedLower);
+      const firstHit = firstName.includes(normalizedLower);
+      const lastHit = lastName.includes(normalizedLower);
+      const fullHit = fullName.includes(normalizedLower);
       const phoneHit = (l.phone ?? '').replace(/\D/g, '').includes(normalizedDigits);
       const codeHit = (l.leadCode ?? '').toUpperCase().includes(normalizedUpper);
-      return nameHit || phoneHit || codeHit;
+      return nameHit || firstHit || lastHit || fullHit || phoneHit || codeHit;
     });
-  }, [allLeads, normalizedQuery, normalizedDigits, normalizedUpper]);
+  }, [allLeads, normalizedQuery, normalizedLower, normalizedDigits, normalizedUpper]);
   const agingDays = (iso?: string | null) => {
     if (!iso) return '—';
     const days = Math.max(
@@ -80,16 +105,37 @@ export function MyLeadsScreen() {
 
   const placeCall = async (lead: LeadItem) => {
     if (!lead.phone) return;
+    const derivedName = [lead.firstName, lead.lastName].filter(Boolean).join(' ');
+    // Use explicit fallback chain - wrap entire right side in parentheses to avoid precedence issues
+    const leadName = lead.name ?? (derivedName || lead.leadCode || undefined);
     await startCall({
       leadId: lead.id,
-      leadName: lead.name ?? undefined,
+      leadName,
       phone: lead.phone,
       clientStage: lead.clientStage ?? null,
       stageFilter: lead.stageFilter ?? null,
     });
   };
 
-  if (loading && !leads.length) {
+  // Show login prompt for users who aren't signed in
+  // RM users can access the app without login, but won't see leads until they sign in
+  if (!isSignedIn) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.containerCenter}>
+          <Text weight="semibold" size="lg" style={{ marginBottom: theme.spacing.md }}>
+            My Leads
+          </Text>
+          <Text tone="muted" size="sm" style={{ textAlign: 'center', paddingHorizontal: theme.spacing.lg }}>
+            Please sign in to view your assigned leads. Login is optional for RM users.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show loading state
+  if (loading && !leads.length && shouldFetchLeads) {
     return (
       <View style={styles.containerCenter}>
         <LoadingState message="Retrieving your data..." />
@@ -106,7 +152,10 @@ export function MyLeadsScreen() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={(
           <View style={styles.headerArea}>
-            <Text weight="semibold" size="lg">All leads</Text>
+            <Text weight="semibold" size="lg">{isAdmin ? 'All leads' : 'My leads'}</Text>
+            <Text tone="muted" size="sm">
+              {isAdmin ? 'Admin scope: viewing every lead and RM assignment.' : 'Showing only leads assigned to you.'}
+            </Text>
             <Text tone="muted" size="sm">Search by lead code, name, or phone</Text>
             <View style={styles.searchWrap}>
               <TextInput
@@ -131,15 +180,45 @@ export function MyLeadsScreen() {
               <View style={styles.row}>
                 <View style={styles.avatar}>
                   <Text weight="bold" style={{ color: theme.colors.primary }}>
-                    {String(item.name || 'Lead').charAt(0)}
+                    {String(item.firstName || item.lastName || item.leadCode || 'Lead').charAt(0)}
                   </Text>
                 </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text weight="semibold">{item.name ?? 'Unnamed'}</Text>
-                  {item.phone ? <Text size="sm" tone="muted">{item.phone}</Text> : null}
-                  <Text size="sm" tone="muted">{item.leadSource ?? item.clientStage ?? ''}</Text>
+                <View style={{ flex: 1, gap: 4 }}>
+                  {/* Lead Code - prominently displayed */}
+                  {item.leadCode ? (
+                    <Text weight="bold" size="sm" style={{ color: theme.colors.primary }}>
+                      {item.leadCode}
+                    </Text>
+                  ) : null}
+                  
+                  {/* First Name and Last Name */}
+                  <Text weight="semibold" size="md">
+                    {[item.firstName, item.lastName].filter(Boolean).join(' ') || item.name || 'Unnamed'}
+                  </Text>
+                  
+                  {/* Phone Number - prominently displayed */}
+                  {item.phone ? (
+                    <Text size="sm" weight="medium" style={{ color: theme.colors.text }}>
+                      {item.phone}
+                    </Text>
+                  ) : (
+                    <Text size="sm" tone="muted">No phone number</Text>
+                  )}
+                  
+                  {/* RM assignment - shown ONLY for Admin */}
+                  {isAdmin && (
+                    <Text size="xs" tone="muted" weight="medium">
+                      RM: {item.assignedRM ?? 'Unassigned'}
+                    </Text>
+                  )}
                 </View>
-                <Pressable style={styles.callButton} onPress={() => placeCall(item)}>
+                <Pressable
+                  style={styles.callButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    placeCall(item);
+                  }}
+                >
                   <Text weight="bold" size="sm" style={{ color: '#fff' }}>Call</Text>
                 </Pressable>
               </View>
@@ -148,7 +227,13 @@ export function MyLeadsScreen() {
         )}
         ListEmptyComponent={(
           <View style={{ padding: 24, alignItems: 'center' }}>
-            {loading ? <LoadingState message="Loading, please wait..." /> : <Text tone="muted">No assigned leads.</Text>}
+            {loading && shouldFetchLeads ? (
+              <LoadingState message="Loading, please wait..." />
+            ) : (
+              <Text tone="muted">
+                {isAdmin ? 'No leads found.' : 'No assigned leads.'}
+              </Text>
+            )}
           </View>
         )}
       />

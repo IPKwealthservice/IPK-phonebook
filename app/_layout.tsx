@@ -38,12 +38,24 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ready) return;
     const inAuthGroup = segments[0] === "(auth)";
+    const userRole = user?.role;
+    const signedIn = isSignedIn();
 
-    if (!isSignedIn() && !inAuthGroup) {
+    // Admin users must be signed in - redirect to sign-in if not
+    if (userRole === 'ADMIN' && !signedIn && !inAuthGroup) {
       router.replace("/(auth)/sign-in");
-    } else if (isSignedIn() && inAuthGroup) {
-      router.replace("/(tabs)");
+      return;
     }
+
+    // If signed in and in auth group, redirect to tabs
+    if (signedIn && inAuthGroup) {
+      router.replace("/(tabs)");
+      return;
+    }
+
+    // For RM users and others: login is optional
+    // Allow access to tabs even without login (RM users can use app without login)
+    // Individual screens will handle showing appropriate content based on login status
   }, [segments, ready, router, isSignedIn, user]);
 
   // Ensure profile is hydrated after app refresh when already signed in

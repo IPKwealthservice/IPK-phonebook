@@ -6,7 +6,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { Card } from '@/components/ui/Card';
 import { Text } from '@/components/ui/Text';
 import { LoadingState } from '@/components/feedback/LoadingState';
-import { LEADS_BY_STAGE_QUERY, STAGE_SUMMARY_QUERY } from '@/core/graphql/queries';
+import { LEADS_BY_STAGE_QUERY, STAGE_SUMMARY_QUERY } from '@/core/graphql/gql/sales_queries';
 import { useTheme } from '@/core/theme/ThemeProvider';
 import { useAuthStore } from '@/features/auth/store/auth.store';
 import { usePhoneCall } from '@/features/phone/hooks/usePhoneCall';
@@ -134,7 +134,8 @@ export function StageLeadsScreen() {
         <View>
           <Text size="lg" weight="bold">Leads by Stage</Text>
           <Text tone="muted" size="sm">
-            Role: {user?.role ?? 'Unknown'} {user?.role === 'RM' ? '(My assigned leads)' : ''}
+            Role: {user?.role ?? 'Unknown'}{" "}
+            {user?.role === 'RM' ? '(My assigned leads)' : user?.role === 'ADMIN' ? '(All leads)' : ''}
           </Text>
         </View>
       </View>
@@ -179,6 +180,7 @@ export function StageLeadsScreen() {
                   <Text weight="semibold">{item.name ?? 'Unnamed'}</Text>
                   <Text size="sm" tone="muted">{item.phone}</Text>
                   <Text size="sm" tone="muted">{item.leadSource ?? slugToLabel(item.clientStage ?? null)}</Text>
+                  <Text size="sm" tone="muted">RM: {item.assignedRM ?? 'Unassigned'}</Text>
                 </View>
                 <Pressable 
                   style={styles.callButton} 

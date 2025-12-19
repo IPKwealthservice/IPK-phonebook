@@ -13,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
-import { LEADS_QUERY } from "@/core/graphql/queries";
+import { LEADS_QUERY } from "@/core/graphql/gql/sales_queries";
 import { useTheme } from "@/core/theme/ThemeProvider";
 import { humanizeEnum } from "@/core/utils/format";
 import { useAuthStore } from "@/features/auth/store/auth.store";
@@ -163,7 +163,11 @@ export function TodaysFollowUpsScreen() {
                   {leads.length} due today
                 </Text>
               </View>
-              {user?.name ? (
+              {user?.role === "ADMIN" ? (
+                <Text tone="muted" size="sm">
+                  Viewing all leads
+                </Text>
+              ) : user?.name ? (
                 <Text tone="muted" size="sm">
                   Assigned to {user.name}
                 </Text>
@@ -190,6 +194,9 @@ export function TodaysFollowUpsScreen() {
                   <Text size="sm" tone="muted">
                     {humanizeEnum(item.clientStage ?? "FOLLOWING_UP")}
                     {item.leadSource ? ` • ${item.leadSource}` : ""}
+                  </Text>
+                  <Text size="sm" tone="muted">
+                    RM: {item.assignedRM ?? "Unassigned"}
                   </Text>
                   <Text size="sm" tone="muted">
                     {formatDueLabel(item.nextActionDueAt)}

@@ -1,5 +1,5 @@
 import { apolloClient } from "@/core/graphql/apolloClient";
-import { ME_QUERY } from "@/core/graphql/queries";
+import { ME_QUERY } from "@/core/graphql/gql/sales_queries";
 
 export type MeProfile = {
   id: string;

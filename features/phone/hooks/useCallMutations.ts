@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import {
   logCallInteraction,
   updateLeadAfterCall,
+  updateLeadDetailsWithClientCode,
   updateLeadStatus,
 } from "@/features/leads/services/interactions.service";
 
@@ -25,6 +26,13 @@ export const useCallMutations = () => {
     []
   );
 
+  const updateLeadDetails = useCallback(
+    async (leadId: string, clientCode: string, note?: string | null) => {
+      return updateLeadDetailsWithClientCode({ leadId, clientCode, note });
+    },
+    []
+  );
+
   const updateStatus = useCallback(
     async (options: UpdateLeadStatusOptions) => {
       return updateLeadStatus(options);
@@ -32,5 +40,5 @@ export const useCallMutations = () => {
     []
   );
 
-  return { logCall, changeStage, updateStatus };
+  return { logCall, changeStage, updateStatus, updateLeadDetails };
 };

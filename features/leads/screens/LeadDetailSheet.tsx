@@ -35,7 +35,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Text } from "@/components/ui/Text";
-import { GET_FULL_LEAD_PROFILE } from "@/core/graphql/queries";
+import { GET_FULL_LEAD_PROFILE } from "@/core/graphql/gql/sales_queries";
 import { useTheme } from "@/core/theme/ThemeProvider";
 import { updateLeadAfterCall } from "@/features/leads/services/interactions.service";
 import CallFollowUpModal from "@/features/phone/components/CallFollowUpModal";
@@ -460,6 +460,10 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                                 </Text>
                               </View>
                             }
+                          />
+                          <InfoItem
+                            label="Assigned RM"
+                            value={lead.assignedRM ?? "Unassigned"}
                           />
                           <InfoItem
                             label="Created / Entered on"

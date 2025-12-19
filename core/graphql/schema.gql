@@ -70,6 +70,7 @@ input BulkLeadRowInput {
   age: Float
   approachAt: DateTime
   bioText: String
+  clientCode: String
   clientQa: [ClientQaInput!]
   clientTypes: String
   email: String
@@ -93,6 +94,24 @@ input BulkLeadRowInput {
 enum CallDirection {
   INCOMING
   OUTGOING
+}
+
+enum CallFailReason {
+  BUSY
+  NOT_REACHABLE
+  NO_ANSWER
+  SWITCHED_OFF
+}
+
+enum CallSource {
+  INCOMING
+  SYSTEM
+}
+
+enum CallStatus {
+  COMPLETED
+  MISSED
+  PENDING
 }
 
 input ChangeStageInput {
@@ -146,6 +165,7 @@ input CreateIpkLeaddInput {
   age: Float
   approachAt: DateTime
   bioText: String
+  clientCode: String
   clientQa: [ClientQaInput!]
   clientTypes: String
   email: String
@@ -240,6 +260,7 @@ type IpkLeaddEntity {
   assignedRM: String
   assignedRmId: ID
   bioText: String
+  clientCode: String
   clientQa: [ClientQaItem]
   clientStage: ClientStage
   clientTypes: String
@@ -286,6 +307,34 @@ enum KycStatus {
   FAILED
   PENDING
   VERIFIED
+}
+
+type LeadCallLog {
+  createdBy: String!
+  createdByName: String!
+  direction: LogCallDirection!
+  durationSec: Float
+  failReason: CallFailReason
+  id: ID!
+  leadCode: String
+  leadId: String!
+  leadName: String
+  nextFollowUpAt: DateTime
+  occurredAt: DateTime!
+  phoneNumber: String!
+  source: CallSource!
+  status: CallStatus!
+}
+
+input LeadCallLogInput {
+  direction: LogCallDirection!
+  durationSec: Float
+  failReason: CallFailReason
+  leadId: ID!
+  nextFollowUpAt: DateTime
+  phoneNumber: String!
+  source: CallSource
+  status: CallStatus!
 }
 
 type LeadEventEntity {
@@ -395,6 +444,11 @@ enum LeadStatus {
   PENDING
 }
 
+enum LogCallDirection {
+  INCOMING
+  OUTGOING
+}
+
 input LogLeadCallInput {
   direction: CallDirection!
   durationSec: Int!
@@ -403,6 +457,11 @@ input LogLeadCallInput {
   outcome: InteractionOutcome
   phoneNumber: String!
   text: String
+}
+
+type MissedLeadCallSummary {
+  calls: [LeadCallLog!]!
+  total: Int!
 }
 
 type Mutation {
@@ -418,12 +477,15 @@ type Mutation {
   createIpkLeadd(input: CreateIpkLeaddInput!): IpkLeaddEntity!
   createLeadsBulk(rows: [BulkLeadRowInput!]!): BulkImportResult!
   createUser(input: CreateUserInput!): CreateUserPayload!
+  finishLeadCall(callLogId: ID!, durationSec: Int, nextFollowUpAt: DateTime): LeadCallLog!
   generatePasswordResetLink(email: String!): String!
   inviteRm(input: InviteRmInput!): InviteRmPayload!
   logLeadCall(input: LogLeadCallInput!): LeadEventEntity!
   makeAdmin(id: ID!): UserEntity!
+  markLeadCallMissed(callLogId: ID!, failReason: CallFailReason, nextFollowUpAt: DateTime): LeadCallLog!
   markPrimaryLeadPhone(phoneId: ID!): [LeadPhoneEntity!]!
   reassignLead(input: ReassignLeadInput!): IpkLeaddEntity!
+  recordLeadCall(input: LeadCallLogInput!): LeadCallLog!
   removeLeadPhone(phoneId: ID!): [LeadPhoneEntity!]!
   removeUser(id: ID!): UserEntity!
   rmFirstContact(input: RmFirstContactInput!): IpkLeaddEntity!
@@ -473,13 +535,19 @@ type Query {
   getUsers(withLeads: Boolean! = false): [UserEntity!]!
   ipkLeadds: [IpkLeaddEntity!]!
   lead(id: ID!): IpkLeaddEntity!
+  leadCallLogs(leadId: ID!, limit: Int, status: CallStatus): [LeadCallLog!]!
   leadDetailWithTimeline(eventsLimit: Int, leadId: ID!): IpkLeaddEntity!
+  leadPhones(leadId: ID!): [LeadPhoneEntity!]!
   leadStageSummary: StageSummary!
   leads(args: LeadListArgs!): LeadPage!
   leadsByStage(args: LeadListArgs, stage: ClientStage): LeadPage!
   leadsOpen: [IpkLeaddEntity!]!
   me: UserEntity!
+  missedLeadCalls(leadId: ID, limit: Int): [LeadCallLog!]!
+  missedLeadCallsSummary(leadId: ID, limit: Int): MissedLeadCallSummary!
   myAssignedLeads(args: LeadListArgs! = {page: 1, pageSize: 10}): LeadPage!
+  pendingLeadCallLogs(includeMissed: Boolean, leadId: ID, limit: Int): [LeadCallLog!]!
+  pendingLeadCalls(leadId: ID, limit: Int): [LeadCallLog!]!
 }
 
 input ReassignLeadInput {
@@ -540,22 +608,23 @@ input UpdateApplicationStatusInput {
 }
 
 input UpdateIpkLeaddInput {
+  ClientStage: ClientStage
   age: Float
-  approachAt: DateTime
   bioText: String
-  clientQa: [ClientQaInput!]
-  clientTypes: String
+  clientCode: String
   email: String
   firstName: String
   gender: String
   id: ID!
   investmentRange: String
   lastName: String
-  leadSource: String
+  leadId: ID
   location: String
   name: String
+  nextActionDueAt: String
   occupations: [OccupationInput!]
   phone: String
+  phones: [UpdateLeadPhoneInput!]
   product: String
   referralCode: String
   referralName: String
@@ -581,9 +650,10 @@ input UpdateLeadClientQaInput {
 }
 
 input UpdateLeadDetailsInput {
+  ClientStage: ClientStage
   age: Float
-  approachAt: DateTime
   bioText: String
+  clientCode: String
   email: String
   firstName: String
   gender: String
@@ -592,14 +662,24 @@ input UpdateLeadDetailsInput {
   leadId: ID!
   location: String
   name: String
+  nextActionDueAt: String
   occupations: [OccupationInput!]
   phone: String
+  phones: [UpdateLeadPhoneInput!]
   product: String
   referralCode: String
   referralName: String
   remark: String
   sipAmount: Float
   stageFilter: LeadStageFilter
+}
+
+input UpdateLeadPhoneInput {
+  id: ID
+  isPrimary: Boolean
+  isWhatsapp: Boolean
+  label: PhoneLabel! = MOBILE
+  number: String!
 }
 
 input UpdateLeadRemarkInput {

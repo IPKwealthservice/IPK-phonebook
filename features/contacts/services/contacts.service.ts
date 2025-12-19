@@ -1,7 +1,7 @@
 import { Result, ok, err } from "@/core/utils/result";
 import { Contact } from "@/features/contacts/types";
 import { apolloClient } from "@/core/graphql/apolloClient";
-import { ACTIVE_RMS } from "@/core/graphql/queries";
+import { ACTIVE_RMS } from "@/core/graphql/gql/sales_queries";
 
 export async function fetchSiteContacts(): Promise<Result<Contact[], string>> {
   try {

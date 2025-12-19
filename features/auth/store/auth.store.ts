@@ -5,7 +5,7 @@ import { AuthUser, SignInPayload } from '@/features/auth/types';
 import { create } from 'zustand';
 import { storageClear } from '@/core/storage/storage';
 import { apolloClient } from '@/core/graphql/apolloClient';
-import { ME_QUERY } from '@/core/graphql/queries';
+import { ME_QUERY } from '@/core/graphql/gql/sales_queries';
 import { onAuthStateChanged } from 'firebase/auth';
 
 type AuthState = {

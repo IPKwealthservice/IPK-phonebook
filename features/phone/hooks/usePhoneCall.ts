@@ -10,7 +10,7 @@ import {
 
 import { apolloClient } from "@/core/graphql/apolloClient";
 import { auth } from "@/core/firebase/firebaseConfig";
-import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
+import { LEADS_QUERY, MY_ASSIGNED_LEADS } from "@/core/graphql/gql/sales_queries";
 import {
   ensureDialerSetup,
   lookupCallLog,
@@ -20,6 +20,7 @@ import {
   subscribeCallState,
   subscribeIncomingCall,
 } from "@/core/phone/callEvents";
+import { useAuthStore } from "@/features/auth/store/auth.store";
 import {
   recordLeadCallLog,
   recordMissedIncomingLeadCall,
@@ -114,7 +115,10 @@ const findLeadMatch = (
   return null;
 };
 
-const fetchLeadDirectory = async (): Promise<LeadDirectoryEntry[]> => {
+const fetchLeadDirectory = async (opts: {
+  isAdmin: boolean;
+  rmId?: string | null;
+}): Promise<LeadDirectoryEntry[]> => {
   try {
     const token = await auth.currentUser?.getIdToken?.();
     if (!token) {
@@ -122,13 +126,44 @@ const fetchLeadDirectory = async (): Promise<LeadDirectoryEntry[]> => {
       return [];
     }
 
-    const { data } = await apolloClient.query({
-      query: MY_ASSIGNED_LEADS,
-      variables: { page: 1, pageSize: 200 },
-      fetchPolicy: "cache-first",
-    });
-    const items = (data as any)?.myAssignedLeads?.items ?? [];
-    return items
+    const pageSize = opts.isAdmin ? 500 : 200;
+    const results: any[] = [];
+
+    if (opts.isAdmin) {
+      let page = 1;
+      let total = Infinity;
+      const maxPages = 10;
+
+      while (results.length < total && page <= maxPages) {
+        const { data } = await apolloClient.query({
+          query: LEADS_QUERY,
+          variables: { args: { page, pageSize } },
+          fetchPolicy: "cache-first",
+        });
+        const payload = (data as any)?.leads;
+        const pageItems = payload?.items ?? [];
+        const reportedTotal = payload?.total;
+        results.push(...pageItems);
+        if (typeof reportedTotal === "number" && Number.isFinite(reportedTotal)) {
+          total = reportedTotal;
+        } else if (!pageItems.length) {
+          break;
+        }
+        if (pageItems.length < pageSize) {
+          break;
+        }
+        page += 1;
+      }
+    } else {
+      const { data } = await apolloClient.query({
+        query: MY_ASSIGNED_LEADS,
+        variables: { page: 1, pageSize },
+        fetchPolicy: "cache-first",
+      });
+      results.push(...((data as any)?.myAssignedLeads?.items ?? []));
+    }
+
+    return results
       .filter((item: any) => {
         const phoneCandidates: string[] = [];
         if (item?.phone) phoneCandidates.push(item.phone);
@@ -316,6 +351,8 @@ const requestCallPermissions = async (): Promise<boolean> => {
 };
 
 export function usePhoneCall(): UsePhoneCallReturn {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === "ADMIN";
   const [phoneNumber, setPhoneNumber] = useState<string>("");
   const [isCalling, setIsCalling] = useState<boolean>(false);
   const [isFollowUpOpen, setIsFollowUpOpen] = useState<boolean>(false);
@@ -347,6 +384,12 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const callEndReasonRef = useRef<"unreachable" | null>(null);
   const finalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoggedCallRef = useRef<boolean>(false);
+  const lastLoggedCallRef = useRef<{
+    leadId: string | null;
+    phone: string | null;
+    status: CallStatus;
+    atMs: number;
+  } | null>(null);
 
   useEffect(() => {
     isCallingRef.current = isCalling;
@@ -387,7 +430,10 @@ export function usePhoneCall(): UsePhoneCallReturn {
   useEffect(() => {
     let cancelled = false;
     const loadDirectory = async () => {
-      const entries = await fetchLeadDirectory();
+      const entries = await fetchLeadDirectory({
+        isAdmin,
+        rmId: user?.id ?? null,
+      });
       if (cancelled) return;
       leadDirectoryRef.current = entries;
       setLeadDirectory(entries);
@@ -396,7 +442,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAdmin, user?.id]);
 
   // One-time dialer + permission setup on Android
   useEffect(() => {
@@ -533,40 +579,57 @@ export function usePhoneCall(): UsePhoneCallReturn {
         const occurredAt = new Date(
           callConnectedAtRef.current ?? callStartedAtRef.current ?? Date.now()
         ).toISOString();
+        const nowMs = Date.now();
+        const isDuplicate =
+          lastLoggedCallRef.current &&
+          lastLoggedCallRef.current.leadId === leadIdForLog &&
+          phoneNumbersMatch(lastLoggedCallRef.current.phone, phoneForLog) &&
+          lastLoggedCallRef.current.status === status &&
+          nowMs - lastLoggedCallRef.current.atMs < 20000;
 
-        try {
-          if (!wasConnected) {
-            if (isIncoming) {
-              await recordMissedIncomingLeadCall({
-                leadId: leadIdForLog,
-                phoneNumber: phoneForLog,
-                nextFollowUpAt: new Date().toISOString(),
-              });
-              apolloClient
-                .refetchQueries({ include: ["CallsTab"] })
-                .catch((refetchErr) =>
-                  console.warn("Failed to refresh calls tab", refetchErr)
-                );
+        if (!isDuplicate) {
+          try {
+            if (!wasConnected) {
+              if (isIncoming) {
+                await recordMissedIncomingLeadCall({
+                  leadId: leadIdForLog,
+                  phoneNumber: phoneForLog,
+                  nextFollowUpAt: new Date().toISOString(),
+                });
+                apolloClient
+                  .refetchQueries({ include: ["CallsTab"] })
+                  .catch((refetchErr) =>
+                    console.warn("Failed to refresh calls tab", refetchErr)
+                  );
+              } else {
+                await recordLeadCallLog({
+                  leadId: leadIdForLog,
+                  phoneNumber: phoneForLog,
+                  direction,
+                  occurredAt,
+                });
+              }
             } else {
               await recordLeadCallLog({
                 leadId: leadIdForLog,
                 phoneNumber: phoneForLog,
                 direction,
+                durationSec: durationSeconds ?? 0,
                 occurredAt,
               });
             }
-          } else {
-            await recordLeadCallLog({
+            hasLoggedCallRef.current = true;
+            lastLoggedCallRef.current = {
               leadId: leadIdForLog,
-              phoneNumber: phoneForLog,
-              direction,
-              durationSec: durationSeconds ?? 0,
-              occurredAt,
-            });
+              phone: phoneForLog,
+              status,
+              atMs: nowMs,
+            };
+          } catch (err) {
+            console.warn("Failed to record call log", err);
           }
-          hasLoggedCallRef.current = true;
-        } catch (err) {
-          console.warn("Failed to record call log", err);
+        } else {
+          console.log("Skipped duplicate call log for", phoneForLog);
         }
       }
 
@@ -778,6 +841,7 @@ export function usePhoneCall(): UsePhoneCallReturn {
   const startCall = useCallback<UsePhoneCallReturn["startCall"]>(
     async (opts) => {
       hasLoggedCallRef.current = false;
+      lastLoggedCallRef.current = null;
       const choices = buildNumberChoices(opts);
       const selected = await selectNumberForCall(choices);
       if (!selected) {

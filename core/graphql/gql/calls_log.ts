@@ -20,6 +20,8 @@ export const RECORD_MISSED_INCOMING_LEAD_CALL = gql`
     ) {
       id
       leadId
+      leadName
+      leadCode
       phoneNumber
       direction
       status
@@ -38,6 +40,8 @@ export const MISSED_LEAD_CALLS = gql`
     missedLeadCalls(leadId: $leadId, limit: $limit) {
       id
       leadId
+      leadName
+      leadCode
       phoneNumber
       direction
       status
@@ -46,6 +50,42 @@ export const MISSED_LEAD_CALLS = gql`
       failReason
       nextFollowUpAt
       createdByName
+    }
+  }
+`;
+
+export const CALLS_TAB_QUERY = gql`
+  query CallsTab($leadId: ID, $limit: Int) {
+    pendingLeadCallLogs(leadId: $leadId, limit: $limit, includeMissed: true) {
+      id
+      leadId
+      leadName
+      leadCode
+      phoneNumber
+      direction
+      status
+      occurredAt
+      durationSec
+      failReason
+      nextFollowUpAt
+      createdByName
+    }
+    missedLeadCallsSummary(leadId: $leadId, limit: $limit) {
+      total
+      calls {
+        id
+        leadId
+        leadName
+        leadCode
+        phoneNumber
+        direction
+        status
+        occurredAt
+        durationSec
+        failReason
+        nextFollowUpAt
+        createdByName
+      }
     }
   }
 `;

@@ -1,4 +1,4 @@
-﻿// features/phone/components/CallFollowUpModal.tsx
+// features/phone/components/CallFollowUpModal.tsx
 import { MaterialIcons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -97,8 +97,9 @@ export default function CallFollowUpModal({
   const [stagePickerOpen, setStagePickerOpen] = useState(false);
   const [stageFilterPickerOpen, setStageFilterPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [clientCode, setClientCode] = useState("");
   const datePickerMountedRef = useRef(false);
-  const { logCall, changeStage } = useCallMutations();
+  const { logCall, changeStage, updateLeadDetails } = useCallMutations();
 
   // Sync state with lead data when modal opens or lead changes
   useEffect(() => {
@@ -138,6 +139,7 @@ export default function CallFollowUpModal({
       setNotes("");
       setNextAction("");
       setNextFollowUpDate(null);
+      setClientCode("");
     }
   }, [visible]);
 
@@ -161,15 +163,28 @@ export default function CallFollowUpModal({
       return;
     }
 
+    // Validate client code if Account Opened is selected
+    if (selectedStage === "ACCOUNT_OPENED" && !clientCode.trim()) {
+      Alert.alert("Client Code Required", "Please enter a client code for Account Opened stage.");
+      return;
+    }
+
     try {
       setSaving(true);
+
+      // Prepare notes with client code if Account Opened
+      let finalNotes = notes?.trim() || "";
+      if (selectedStage === "ACCOUNT_OPENED" && clientCode.trim()) {
+        const clientCodeNote = `Client Code: ${clientCode.trim()}`;
+        finalNotes = finalNotes ? `${finalNotes}\n${clientCodeNote}` : clientCodeNote;
+      }
 
       // Save call log with duration and notes
       await logCall({
         leadId: lead.id,
         phone: lead?.phone ?? "",
         durationSeconds: durationLabel,
-        notes,
+        notes: finalNotes || undefined,
         nextAction,
       });
 
@@ -186,11 +201,16 @@ export default function CallFollowUpModal({
           channel: "CALL",
           stage: selectedStage,
           stageFilter: selectedStageFilter ?? null,
-          note: notes?.trim() || undefined,
+          note: finalNotes || undefined,
           nextFollowUpAt: nextFollowUpAt ?? (nextAction?.trim() ? undefined : null),
           durationSeconds: durationLabel,
           saveRemark: true,
         });
+
+        // If Account Opened, also persist client code to the lead
+        if (selectedStage === "ACCOUNT_OPENED" && clientCode.trim()) {
+          await updateLeadDetails(lead.id, clientCode.trim(), finalNotes || undefined);
+        }
       } else if (selectedStageFilter) {
         // If only stage filter changed, still update it
         await changeStage({
@@ -198,16 +218,18 @@ export default function CallFollowUpModal({
           channel: "CALL",
           stage: lead?.clientStage as ClientStageOption || "CLIENT_INTERESTED",
           stageFilter: selectedStageFilter,
-          note: notes?.trim() || undefined,
+          note: finalNotes || undefined,
           durationSeconds: durationLabel,
           saveRemark: true,
         });
       }
 
+      // Close modal after successful save
       onClose();
       setNotes("");
       setNextAction("");
       setNextFollowUpDate(null);
+      setClientCode("");
       // Note: selectedStage and selectedStageFilter will be synced from lead prop
       // when modal opens again via the useEffect hook
     } catch (err) {
@@ -221,12 +243,14 @@ export default function CallFollowUpModal({
     lead,
     logCall,
     changeStage,
+    updateLeadDetails,
     nextAction,
     notes,
     onClose,
     selectedStage,
     selectedStageFilter,
     nextFollowUpDate,
+    clientCode,
   ]);
 
   const leadLine = lead?.name || lead?.phone ? `${lead?.name ?? ""}${lead?.name && lead?.phone ? " • " : ""}${lead?.phone ?? ""}` : null;
@@ -314,6 +338,21 @@ export default function CallFollowUpModal({
                   <MaterialIcons name="calendar-today" size={20} color="#CBD5E1" />
                 </Pressable>
               </View>
+
+              {/* Client Code input - shown only when Account Opened is selected */}
+              {selectedStage === "ACCOUNT_OPENED" && (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Client Code *</Text>
+                  <TextInput
+                    value={clientCode}
+                    onChangeText={setClientCode}
+                    placeholder="Enter client code"
+                    placeholderTextColor="#94A3B8"
+                    style={styles.input}
+                    autoCapitalize="characters"
+                  />
+                </View>
+              )}
 
               <View style={styles.field}>
                 <Text style={styles.label}>Notes / Summary</Text>

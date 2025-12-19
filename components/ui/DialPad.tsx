@@ -20,7 +20,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MY_ASSIGNED_LEADS } from "@/core/graphql/queries";
+import { MY_ASSIGNED_LEADS } from "@/core/graphql/gql/sales_queries";
 import { fetchRecentCalls } from "@/core/phone/callEvents";
 import {
   dpStyles,

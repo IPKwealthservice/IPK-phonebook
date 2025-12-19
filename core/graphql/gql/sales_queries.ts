@@ -43,6 +43,8 @@ export const LEADS_BY_STAGE_QUERY = gql`
         id
         leadCode
         name
+        firstName
+        lastName
         phone
         clientStage
         stageFilter
@@ -62,7 +64,16 @@ export const LEADS_QUERY = gql`
         id
         leadCode
         name
+        firstName
+        lastName
         phone
+        phoneNormalized
+        phones {
+          number
+          normalized
+          isPrimary
+          label
+        }
         leadSource
         clientStage
         stageFilter
@@ -70,6 +81,9 @@ export const LEADS_QUERY = gql`
         assignedRM
         assignedRmId
         nextActionDueAt
+        createdAt
+        updatedAt
+        lastContactedAt
       }
       page
       pageSize
@@ -77,6 +91,7 @@ export const LEADS_QUERY = gql`
     }
   }
 `;
+
 
 export const LEAD_DETAIL_WITH_TIMELINE = gql`
   query LeadDetailWithTimeline($leadId: ID!, $eventsLimit: Int = 20) {
@@ -152,6 +167,8 @@ export const MY_ASSIGNED_LEADS = gql`
         id
         leadCode
         name
+        firstName
+        lastName
         phone
         phoneNormalized
         phones {
@@ -202,6 +219,18 @@ export const UPDATE_LEAD_DETAILS_AFTER_CALL = gql`
       clientStage
       stageFilter
       nextActionDueAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPDATE_LEAD_DETAILS = gql`
+  mutation UpdateLeadDetails($input: UpdateLeadDetailsInput!) {
+    updateLeadDetails(input: $input) {
+      id
+      clientCode
+      clientStage
+      stageFilter
       updatedAt
     }
   }
@@ -277,6 +306,8 @@ export const GET_FULL_LEAD_PROFILE = gql`
         isWhatsapp
         label
       }
+      assignedRM
+      assignedRmId
       email
       gender
       age
@@ -343,6 +374,8 @@ export const HOME_LEADS_QUERY = gql`
         id
         leadCode
         name
+        firstName
+        lastName
         phone
         leadSource
         clientStage
@@ -369,6 +402,8 @@ export const LEADS_TAB_QUERY = gql`
         id
         leadCode
         name
+        firstName
+        lastName
         phone
         leadSource
         clientStage
@@ -396,6 +431,8 @@ export const FOLLOWUPS_TAB_QUERY = gql`
         id
         leadCode
         name
+        firstName
+        lastName
         phone
         leadSource
         clientStage
@@ -409,39 +446,6 @@ export const FOLLOWUPS_TAB_QUERY = gql`
       page
       pageSize
       total
-    }
-  }
-`;
-
-// Calls Tab Query - Optimized for call history and pending calls
-export const CALLS_TAB_QUERY = gql`
-  query CallsTab($leadId: ID, $limit: Int) {
-    pendingLeadCallLogs(leadId: $leadId, limit: $limit, includeMissed: true) {
-      id
-      leadId
-      phoneNumber
-      direction
-      status
-      occurredAt
-      durationSec
-      failReason
-      nextFollowUpAt
-      createdByName
-    }
-    missedLeadCallsSummary(leadId: $leadId, limit: $limit) {
-      total
-      calls {
-        id
-        leadId
-        phoneNumber
-        direction
-        status
-        occurredAt
-        durationSec
-        failReason
-        nextFollowUpAt
-        createdByName
-      }
     }
   }
 `;

@@ -1,12 +1,13 @@
 import { apolloClient } from "@/core/graphql/apolloClient";
-import { RECORD_MISSED_INCOMING_LEAD_CALL } from "@/core/graphql/calls_log";
+import { RECORD_MISSED_INCOMING_LEAD_CALL } from "@/core/graphql/gql/calls_log";
 import {
   ADD_LEAD_INTERACTION,
   LOG_LEAD_CALL,
   UPDATE_LEAD_DETAILS_AFTER_CALL,
   UPDATE_LEAD_REMARK,
   UPDATE_LEAD_STATUS,
-} from "@/core/graphql/queries";
+  UPDATE_LEAD_DETAILS,
+} from "@/core/graphql/gql/sales_queries";
 
 export type InteractionChannel = "CALL" | "WHATSAPP" | "EMAIL" | "SMS" | "OTHER";
 
@@ -87,6 +88,24 @@ export async function updateLeadAfterCall(params: {
   }
 
   return data?.changeStage;
+}
+
+export async function updateLeadDetailsWithClientCode(params: {
+  leadId: string;
+  clientCode: string;
+  note?: string | null;
+}) {
+  const { leadId, clientCode, note } = params;
+  await apolloClient.mutate({
+    mutation: UPDATE_LEAD_DETAILS,
+    variables: {
+      input: {
+        leadId,
+        clientCode,
+        remark: note ?? undefined,
+      },
+    },
+  });
 }
 
 export async function logCallInteraction(input: {

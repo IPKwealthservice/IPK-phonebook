@@ -6,7 +6,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
-import { CALLS_TAB_QUERY, LEADS_QUERY } from "@/core/graphql/queries";
+import { CALLS_TAB_QUERY } from "@/core/graphql/gql/calls_log";
+import { LEADS_QUERY } from "@/core/graphql/gql/sales_queries";
 import { useTheme } from "@/core/theme/ThemeProvider";
 import { formatPhone, humanizeEnum } from "@/core/utils/format";
 import { useAuthStore } from "@/features/auth/store/auth.store";
@@ -29,12 +30,16 @@ type FollowUpLead = {
   clientStage?: string | null;
   stageFilter?: string | null;
   leadSource?: string | null;
+  assignedRM?: string | null;
+  assignedRmId?: string | null;
   nextActionDueAt?: string | null;
 };
 
 type MissedCallLog = {
   id: string;
   leadId?: string | null;
+  leadName?: string | null;
+  leadCode?: string | null;
   phoneNumber?: string | null;
   direction?: string | null;
   status?: string | null;
@@ -59,22 +64,13 @@ const buildTodayBounds = () => {
 };
 
 const isPendingAfterGrace = (iso?: string | null) => {
-  if (!iso) return false;
+if (!iso) return false;
   const due = new Date(iso);
-  if (Number.isNaN(due.getTime())) return false;
-
   const now = new Date();
-  const { start } = buildTodayBounds();
-  const graceMs = 60 * 60 * 1000; // 1 hour
-
-  // Anything before today is immediately pending
-  if (due.getTime() < start.getTime()) {
-    return true;
-  }
-
-  // For today's items, require the 1-hour grace to elapse
+  const graceMs = 60 * 60 * 1000;
   return now.getTime() - due.getTime() >= graceMs;
 };
+
 
 const formatOverdue = (minutes: number) => {
   const mins = Math.max(1, minutes);
@@ -119,12 +115,11 @@ const formatDueLabel = (iso?: string | null) => {
 
 const formatOccurredAt = (iso?: string | null) => {
   if (!iso) return "Time not captured";
-  const dt = new Date(iso);
-  return dt.toLocaleString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
+  return new Date(iso).toLocaleString(undefined, {
     day: "2-digit",
     month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 };
 
@@ -133,6 +128,7 @@ export function CallsScreen() {
   const styles = makeStyles(theme);
   const { startCall, isCalling, activeLead } = usePhoneCall();
   const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === "ADMIN";
 
   const leadArgs = useMemo(() => {
     const args: Record<string, any> = {
@@ -145,25 +141,18 @@ export function CallsScreen() {
     return args;
   }, [user?.id, user?.role]);
 
-  const {
-    data: callData,
-    loading: callsLoading,
-    refetch: refetchCalls,
-  } = useQuery(CALLS_TAB_QUERY, {
-    variables: { limit: 50 },
-    fetchPolicy: "cache-and-network",
-    notifyOnNetworkStatusChange: true,
-  });
+  const { data: callData, loading: callsLoading, refetch: refetchCalls } =
+    useQuery(CALLS_TAB_QUERY, {
+      variables: { limit: 50 },
+    });
 
-  const {
-    data: leadsData,
-    loading: leadsLoading,
-    refetch: refetchLeads,
-  } = useQuery(LEADS_QUERY, {
-    variables: { args: leadArgs },
-    fetchPolicy: "cache-and-network",
-    notifyOnNetworkStatusChange: true,
-  });
+
+  const { data: leadsData, loading: leadsLoading, refetch: refetchLeads } =
+    useQuery(LEADS_QUERY, {
+      variables: {
+        args: leadArgs,
+      },
+    })
 
   const pendingLeads: FollowUpLead[] = useMemo(() => {
     const items: FollowUpLead[] = (leadsData as any)?.leads?.items ?? [];
@@ -261,7 +250,9 @@ export function CallsScreen() {
             Calls
           </Text>
           <Text tone="muted" size="sm">
-            Pending and missed calls in one place. Tap a tab to switch.
+            {isAdmin
+              ? "Pending and missed calls across all leads. Tap a tab to switch."
+              : "Pending and missed calls in one place. Tap a tab to switch."}
           </Text>
         </View>
 
@@ -368,6 +359,9 @@ export function CallsScreen() {
                       {humanizeEnum(lead.clientStage ?? "FOLLOWING_UP")}
                       {lead.leadSource ? ` · ${lead.leadSource}` : ""}
                     </Text>
+                    <Text size="sm" tone="muted">
+                      RM: {lead.assignedRM ? lead.assignedRM : "Unassigned"}
+                    </Text>
                     <View style={styles.statusRow}>
                       <View style={[styles.statusBadge, styles.statusPrimary]}>
                         <MaterialIcons
@@ -431,15 +425,22 @@ export function CallsScreen() {
                   </View>
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text weight="semibold">
-                      {call.phoneNumber ? formatPhone(call.phoneNumber) : "Unknown number"}
+                      {call.leadName
+                        ? call.leadName
+                        : call.phoneNumber
+                        ? formatPhone(call.phoneNumber)
+                        : "Unknown number"}
                     </Text>
-                    {call.leadId ? (
-                      <Text size="sm" tone="muted">
-                        Lead ID: {call.leadId}
-                      </Text>
-                    ) : null}
                     <Text size="sm" tone="muted">
-                      {call.failReason ? humanizeEnum(call.failReason) : "Missed call"} ·{" "}
+                      {[
+                        call.leadCode ? `Lead ${call.leadCode}` : null,
+                        call.phoneNumber ? formatPhone(call.phoneNumber) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Lead details unavailable"}
+                    </Text>
+                    <Text size="sm" tone="muted">
+                      {call.failReason ? humanizeEnum(call.failReason) : "Missed call"} at{" "}
                       {formatOccurredAt(call.occurredAt)}
                     </Text>
                     {call.createdByName ? (
