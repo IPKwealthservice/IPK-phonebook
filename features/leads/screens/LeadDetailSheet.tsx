@@ -13,18 +13,14 @@ import { useQuery } from "@apollo/client/react";
 import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   Alert,
   Animated,
-  KeyboardAvoidingView,
   Linking,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -37,8 +33,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Text } from "@/components/ui/Text";
 import { GET_FULL_LEAD_PROFILE } from "@/core/graphql/gql/sales_queries";
 import { useTheme } from "@/core/theme/ThemeProvider";
-import { updateLeadAfterCall } from "@/features/leads/services/interactions.service";
 import CallFollowUpModal from "@/features/phone/components/CallFollowUpModal";
+import LogPopUp from "@/features/phone/components/logPop_up";
 import { usePhoneCall } from "@/features/phone/hooks/usePhoneCall";
 
 type Props = {
@@ -54,51 +50,6 @@ type RemarkItem =
       byName?: string | null;
       text?: string | null;
     };
-
-type ClientStageOption =
-  | "NEW_LEAD"
-  | "FIRST_TALK_DONE"
-  | "FOLLOWING_UP"
-  | "CLIENT_INTERESTED"
-  | "ACCOUNT_OPENED"
-  | "NO_RESPONSE_DORMANT"
-  | "NOT_INTERESTED_DORMANT"
-  | "RISKY_CLIENT_DORMANT"
-  | "HIBERNATED";
-
-type LeadStageFilterOption =
-  | "NEED_CLARIFICATION"
-  | "FUTURE_INTERESTED"
-  | "NOT_INTERESTED"
-  | "NOT_ELIGIBLE"
-  | "HIGH_PRIORITY"
-  | "LOW_PRIORITY"
-  | "ON_PROCESS";
-
-const CLIENT_STAGE_OPTIONS: ClientStageOption[] = [
-  "NEW_LEAD",
-  "FIRST_TALK_DONE",
-  "FOLLOWING_UP",
-  "CLIENT_INTERESTED",
-  "ACCOUNT_OPENED",
-  "NO_RESPONSE_DORMANT",
-  "NOT_INTERESTED_DORMANT",
-  "RISKY_CLIENT_DORMANT",
-  "HIBERNATED",
-];
-
-const LEAD_STAGE_FILTER_OPTIONS: (LeadStageFilterOption | null)[] = [
-  null,
-  "NEED_CLARIFICATION",
-  "FUTURE_INTERESTED",
-  "NOT_INTERESTED",
-  "NOT_ELIGIBLE",
-  "HIGH_PRIORITY",
-  "LOW_PRIORITY",
-  "ON_PROCESS",
-];
-
-const QUICK_NOTES = ["Call not connected", "Not reachable / switched off"];
 
 export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
   const theme = useTheme();
@@ -144,36 +95,7 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
     [lead?.createdAt]
   );
 
-  const [logOpen, setLogOpen] = useState(false);
-  const [note, setNote] = useState("");
-  const [channel, setChannel] = useState<
-    "CALL" | "WHATSAPP" | "EMAIL" | "OTHER"
-  >("CALL");
-  const [selectedStage, setSelectedStage] = useState<ClientStageOption | null>(
-    (lead?.clientStage as ClientStageOption) || null
-  );
-  const [selectedStageFilter, setSelectedStageFilter] =
-    useState<LeadStageFilterOption | null>(
-      (lead?.stageFilter as LeadStageFilterOption) || null
-    );
-  const [nextFollowUpDate, setNextFollowUpDate] = useState<Date | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [manualDateText, setManualDateText] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const isAndroidPickerAvailable = useMemo(() => {
-    if (Platform.OS !== "android") return true;
-    try {
-      // RNDateTimePicker native module is required for Android picker.
-      // If missing (e.g., not installed/linked in a custom dev client),
-      // skip rendering to avoid crashes.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { NativeModules } = require("react-native");
-      return !!(NativeModules as any)?.RNDateTimePicker;
-    } catch {
-      return false;
-    }
-  }, []);
+  const [manualFollowUpOpen, setManualFollowUpOpen] = useState(false);
 
   const {
     startCall,
@@ -220,55 +142,6 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
     }
   };
 
-  const handleLogInteraction = async () => {
-    if (!leadId || !note.trim()) return;
-    setSaving(true);
-    try {
-      await updateLeadAfterCall({
-        leadId,
-        channel,
-        note: note.trim(),
-        nextFollowUpAt: nextFollowUpDate ? nextFollowUpDate.toISOString() : null,
-        stage: selectedStage ?? lead?.clientStage ?? null,
-        stageFilter: selectedStageFilter ?? lead?.stageFilter ?? null,
-        saveRemark: true,
-      });
-      await refetch();
-      setNote("");
-      setNextFollowUpDate(null);
-      setSelectedStage(lead?.clientStage ?? null);
-      setSelectedStageFilter(lead?.stageFilter ?? null);
-      setLogOpen(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  useEffect(() => {
-    if (logOpen) {
-      setSelectedStage((lead?.clientStage as ClientStageOption) || null);
-      setSelectedStageFilter((lead?.stageFilter as LeadStageFilterOption) || null);
-      setNextFollowUpDate(
-        lead?.nextFollowUpAt ? new Date(lead.nextFollowUpAt) : null
-      );
-      setManualDateText(
-        lead?.nextFollowUpAt
-          ? new Date(lead.nextFollowUpAt).toLocaleString()
-          : ""
-      );
-    }
-  }, [lead?.clientStage, lead?.stageFilter, lead?.nextFollowUpAt, logOpen]);
-
-  // Ensure the Android picker never tries to dismiss after the modal closes.
-  useEffect(() => {
-    if (!logOpen && showDatePicker) {
-      setShowDatePicker(false);
-    }
-    return () => {
-      setShowDatePicker(false);
-    };
-  }, [logOpen, showDatePicker]);
-
   const remarks: RemarkItem[] = useMemo(() => {
     if (!lead?.remark) return [];
     if (Array.isArray(lead.remark)) return lead.remark;
@@ -278,6 +151,31 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
   const qaList = Array.isArray(lead?.clientQa) ? lead.clientQa : [];
   const timeline = Array.isArray(lead?.events) ? lead.events : [];
   const phones = Array.isArray(lead?.phones) ? lead.phones : [];
+  const autoFollowUpVisible = isFollowUpOpen && !!leadId;
+  const manualFollowUpVisible = manualFollowUpOpen && !!leadId;
+  const followUpDuration = isFollowUpOpen ? callDurationSeconds ?? 0 : 0;
+  const followUpLead =
+    isFollowUpOpen
+      ? callActiveLead?.id === leadId
+        ? callActiveLead
+        : leadId && lead
+        ? {
+            id: leadId,
+            name: lead.name ?? undefined,
+            phone: primaryPhone ?? undefined,
+            clientStage: lead.clientStage ?? null,
+            stageFilter: lead.stageFilter ?? null,
+          }
+        : callActiveLead
+      : leadId && lead
+      ? {
+          id: leadId,
+          name: lead.name ?? undefined,
+          phone: primaryPhone ?? undefined,
+          clientStage: lead.clientStage ?? null,
+          stageFilter: lead.stageFilter ?? null,
+        }
+      : callActiveLead;
 
   return (
     <>
@@ -763,7 +661,7 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
                         />
                       }
                       label="Log"
-                      onPress={() => setLogOpen(true)}
+                      onPress={() => setManualFollowUpOpen(true)}
                       background={theme.colors.primary}
                     />
                   </View>
@@ -774,280 +672,37 @@ export default function LeadDetailSheet({ leadId, visible, onClose }: Props) {
         </View>
       </Modal>
 
-      {/* ===================== LOG INTERACTION MODAL ===================== */}
-      <Modal
-        visible={logOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setLogOpen(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 32}
-            style={styles.logCardContainer}
-          >
-            <View style={styles.logCard}>
-              <View style={styles.logHeaderRow}>
-                <View>
-                  <Text style={styles.logTitle}>Log Interaction</Text>
-                  <Text style={styles.logSubtitle}>
-                    Align the stage, status, next action, and notes before saving.
-                  </Text>
-                </View>
-                <Pressable onPress={() => setLogOpen(false)} style={styles.logCloseBtn}>
-                  <MaterialIcons name="close" size={20} color="#E2E8F0" />
-                </Pressable>
-              </View>
-
-              <ScrollView
-                style={styles.logScroll}
-                contentContainerStyle={styles.logScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <Text style={styles.sectionLabel}>Channel</Text>
-                <View style={styles.channelRow}>
-                  {["CALL", "WHATSAPP", "EMAIL", "OTHER"].map((option) => {
-                    const selected = channel === option;
-                    return (
-                      <Pressable
-                        key={option}
-                        onPress={() => setChannel(option as any)}
-                        style={[
-                          styles.channelPill,
-                          selected && styles.channelPillActive,
-                        ]}
-                      >
-                        <Text
-                          style={[styles.channelText, selected && styles.channelTextActive]}
-                        >
-                          {option}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.sectionLabel}>Stage</Text>
-                  <View style={styles.optionWrap}>
-                    {CLIENT_STAGE_OPTIONS.map((option) => {
-                      const selected = selectedStage === option;
-                      return (
-                        <Pressable
-                          key={option}
-                          onPress={() => setSelectedStage(option)}
-                          style={[
-                            styles.optionPill,
-                            selected && styles.optionPillActive,
-                          ]}
-                        >
-                          <Text
-                            style={[styles.optionText, selected && styles.optionTextActive]}
-                          >
-                            {slugToLabel(option)}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.sectionLabel}>Status</Text>
-                  <View style={styles.optionWrap}>
-                    {LEAD_STAGE_FILTER_OPTIONS.map((option) => {
-                      const selected = selectedStageFilter === option;
-                      return (
-                        <Pressable
-                          key={option ?? "none"}
-                          onPress={() => setSelectedStageFilter(option)}
-                          style={[
-                            styles.optionPill,
-                            selected && styles.optionPillActive,
-                          ]}
-                        >
-                          <Text
-                            style={[styles.optionText, selected && styles.optionTextActive]}
-                          >
-                            {option ? slugToLabel(option, "No status") : "No status"}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.sectionLabel}>Next action due date</Text>
-                  {Platform.OS === "android" && !isAndroidPickerAvailable ? (
-                    <View style={{ gap: 8 }}>
-                      <Text size="sm" style={{ color: "#94A3B8" }}>
-                        Date picker unavailable in this build. Enter date/time manually
-                        (YYYY-MM-DD HH:mm) or install the native module.
-                      </Text>
-                      <TextInput
-                        value={manualDateText}
-                        onChangeText={(text) => {
-                          setManualDateText(text);
-                          const parsed = Date.parse(text);
-                          if (!Number.isNaN(parsed)) {
-                            setNextFollowUpDate(new Date(parsed));
-                          }
-                        }}
-                        placeholder="YYYY-MM-DD HH:mm"
-                        placeholderTextColor="#94A3B8"
-                        style={styles.logInput}
-                      />
-                    </View>
-                  ) : (
-                    <Pressable
-                      onPress={() => setShowDatePicker(true)}
-                      style={styles.dateButton}
-                    >
-                      <Text style={styles.dateButtonText}>
-                        {nextFollowUpDate
-                          ? nextFollowUpDate.toLocaleString()
-                          : "Select date & time"}
-                      </Text>
-                      <MaterialIcons name="calendar-today" size={18} color="#CBD5E1" />
-                    </Pressable>
-                  )}
-                </View>
-
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.sectionLabel}>Notes</Text>
-                  <View style={styles.quickNotesRow}>
-                    {QUICK_NOTES.map((item) => (
-                      <Pressable
-                        key={item}
-                        onPress={() => setNote(item)}
-                        style={styles.quickNotePill}
-                      >
-                        <Text style={styles.quickNoteText}>{item}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  <TextInput
-                    multiline
-                    placeholder="Add context, commitments, objections, etc."
-                    placeholderTextColor="#94A3B8"
-                    value={note}
-                    onChangeText={setNote}
-                    style={styles.logInput}
-                  />
-                </View>
-              </ScrollView>
-
-              <Pressable
-                onPress={handleLogInteraction}
-                disabled={saving || !note.trim()}
-                style={[
-                  styles.logPrimaryBtn,
-                  (saving || !note.trim()) && { opacity: 0.6 },
-                ]}
-              >
-                <Text style={styles.logPrimaryText}>
-                  {saving ? "Saving..." : "Save interaction"}
-                </Text>
-              </Pressable>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-
-        {Platform.OS === "android" && showDatePicker && isAndroidPickerAvailable && (
-          <DateTimePicker
-            value={nextFollowUpDate || new Date()}
-            mode="datetime"
-            display="default"
-            onChange={(event, date) => {
-              // On Android, the native picker occasionally throws when we try to
-              // dismiss during unmount; keep handling simple and single-shot.
-              if (event.type === "set" && date) {
-                setNextFollowUpDate(date);
-                setShowDatePicker(false);
-              } else if (event.type === "dismissed") {
-                setShowDatePicker(false);
-              }
-            }}
-            minimumDate={new Date()}
-          />
-        )}
-
-        {Platform.OS === "ios" && showDatePicker && (
-          <Modal
-            visible={showDatePicker}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setShowDatePicker(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={() => setShowDatePicker(false)}
-              />
-              <View style={styles.datePickerCard}>
-                <View style={styles.datePickerHeader}>
-                  <Pressable onPress={() => setShowDatePicker(false)}>
-                    <Text style={styles.datePickerCancel}>Cancel</Text>
-                  </Pressable>
-                  <Text style={styles.datePickerTitle}>Select Date & Time</Text>
-                  <Pressable
-                    onPress={() => {
-                      if (nextFollowUpDate) {
-                        setShowDatePicker(false);
-                      }
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.datePickerDone,
-                        !nextFollowUpDate && { opacity: 0.5 },
-                      ]}
-                    >
-                      Done
-                    </Text>
-                  </Pressable>
-                </View>
-                <DateTimePicker
-                  value={nextFollowUpDate || new Date()}
-                  mode="datetime"
-                  display="spinner"
-                  onChange={(event, date) => {
-                    if (event.type === "set" && date) {
-                      setNextFollowUpDate(date);
-                    }
-                  }}
-                  minimumDate={new Date()}
-                  style={styles.datePickerIOS}
-                />
-              </View>
-            </View>
-          </Modal>
-        )}
-      </Modal>
-
       {/* ===================== FOLLOW UP MODAL ===================== */}
       <CallFollowUpModal
-        visible={isFollowUpOpen && !!leadId}
-        durationSeconds={callDurationSeconds ?? 0}
-        lead={
-          callActiveLead?.id === leadId
-            ? callActiveLead
-            : leadId && lead
-            ? {
-                id: leadId,
-                name: lead.name ?? undefined,
-                phone: primaryPhone ?? undefined,
-                clientStage: lead.clientStage ?? null,
-                stageFilter: lead.stageFilter ?? null,
-              }
-            : callActiveLead
-        }
+        visible={autoFollowUpVisible}
+        durationSeconds={followUpDuration}
+        lead={followUpLead}
         onClose={() => {
-          closeFollowUp();
-          setLogOpen(true);
+          if (isFollowUpOpen) {
+            closeFollowUp();
+          }
+          if (manualFollowUpOpen) {
+            setManualFollowUpOpen(false);
+          }
+          if (leadId) {
+            refetch({ leadId }).catch(() => {});
+          }
+        }}
+      />
+
+      <LogPopUp
+        visible={manualFollowUpVisible}
+        durationSeconds={0}
+        lead={followUpLead}
+        allowDismiss={true}
+        showCloseButton={true}
+        onClose={() => {
+          if (manualFollowUpOpen) {
+            setManualFollowUpOpen(false);
+          }
+          if (leadId) {
+            refetch({ leadId }).catch(() => {});
+          }
         }}
       />
     </>

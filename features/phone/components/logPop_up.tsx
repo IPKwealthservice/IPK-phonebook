@@ -29,6 +29,7 @@ export interface CallFollowUpModalProps {
   durationSeconds: number;
   lead: LeadSummary;
   onClose: () => void;
+  showCloseButton?: boolean;
   allowDismiss?: boolean;
 }
 
@@ -88,6 +89,7 @@ export default function CallFollowUpModal({
   durationSeconds,
   lead,
   onClose,
+  showCloseButton = false,
   allowDismiss = false,
 }: CallFollowUpModalProps) {
   const [notes, setNotes] = useState("");
@@ -329,7 +331,7 @@ export default function CallFollowUpModal({
                 <Text style={styles.title}>Call Follow-up</Text>
                 {leadLine ? <Text style={styles.subtitle}>{leadLine}</Text> : null}
               </View>
-              {allowDismiss ? (
+              {showCloseButton && allowDismiss ? (
                 <Pressable
                   onPress={handleClose}
                   style={styles.closeBtn}
